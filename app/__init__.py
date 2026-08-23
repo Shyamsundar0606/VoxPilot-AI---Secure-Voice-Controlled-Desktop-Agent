@@ -1,0 +1,2 @@
+"""VoxPilot AI application package."""
+

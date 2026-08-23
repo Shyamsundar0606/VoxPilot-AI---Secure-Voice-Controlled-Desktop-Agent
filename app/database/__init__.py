@@ -1,0 +1,2 @@
+"""SQLite command history."""
+
