@@ -8,6 +8,7 @@ from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
 from app.models import ExecutionResult, Status
+from app.models import RecordingResult, TranscriptionResult
 from app.ui.main_window import MainWindow
 from app.ui.workers import CommandWorker
 
@@ -89,3 +90,17 @@ def test_stop_returns_idle_and_prevents_second_worker():
     window.stop()
     active.requestInterruption.assert_called_once()
     assert window.status.text() == "Status: Idle"
+
+
+def test_recording_failure_exits_listening():
+    window = _window(); window._voice_phase = "recording"
+    window._voice_result = RecordingResult(success=False, error_code="no_speech", message="No speech")
+    window._voice_thread_finished()
+    assert window.status.text() == "Status: Failed"
+
+
+def test_transcription_failure_exits_processing():
+    window = _window(); window._voice_phase = "transcribing"
+    window._voice_result = TranscriptionResult(success=False, model_used="base.en", error_code="timeout", message="Timed out")
+    window._voice_thread_finished()
+    assert window.status.text() == "Status: Failed"

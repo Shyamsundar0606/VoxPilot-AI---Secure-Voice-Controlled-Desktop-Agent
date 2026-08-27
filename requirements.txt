@@ -4,4 +4,6 @@ psutil>=5.9,<7
 pyttsx3>=2.90,<3
 requests>=2.32,<3
 platformdirs>=4.2,<5
-
+faster-whisper>=1.1,<2
+sounddevice>=0.5,<1
+numpy>=1.26,<3

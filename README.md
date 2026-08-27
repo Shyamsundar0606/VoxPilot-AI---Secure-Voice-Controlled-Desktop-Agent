@@ -2,30 +2,32 @@
 
 VoxPilot AI is a local-first Windows desktop assistant. Its voice identity is **Shyam**. The project aims to make common laptop actions accessible through natural language while keeping execution deterministic, restricted, and private.
 
-Milestone 1 establishes the safe desktop foundation. It provides typed commands and local spoken responses; real microphone recognition and wake-word detection are deliberately deferred.
+Milestone 1 established the safe desktop foundation. Milestone 2 adds local, click-to-record microphone commands. Wake-word detection remains deliberately deferred.
 
 ## The problem
 
 General-purpose automation can turn generated text into unsafe operating-system commands. VoxPilot instead routes recognized phrases to a small allowlist of reviewed tools and fixed application identifiers. Unknown requests are rejected rather than guessed.
 
-## Milestone 1 features
+## Current features
 
 - Dark PySide6 desktop interface titled **VoxPilot AI**, with **Shyam** as the assistant
-- Typed command input, Execute, microphone placeholder, and Stop controls
+- Typed commands and click-to-record microphone commands with safe Stop controls
 - Idle, Listening, Processing, Completed, and Failed status model
 - Command, result, and SQLite-backed history panels
 - Background command execution and background `pyttsx3` speech
 - Spoken-response toggle and graceful error handling
 - Deterministic command router; Ollama is optional and never required for supported commands
 - Mockable Windows tool layer for time, date, battery, storage, approved applications, approved URLs, and help
+- Input-device selection, refresh/test controls, audio-level display, silence detection, and bounded recording
+- Local faster-whisper transcription with structured confidence and error validation
 
 ## Architecture
 
-`app/ui` contains presentation and worker threads. `app/agent` routes and executes requests. `app/tools` contains the only approved side effects. `app/security` validates tool names and arguments. `app/database` persists history. `app/voice` isolates text-to-speech. Typed Pydantic models carry requests and results between layers.
+`app/ui` contains presentation and retained Qt workers. `app/agent` routes and executes requests. `app/tools` contains the only approved side effects. `app/security` validates tool names and arguments. `app/database` persists history. `app/voice` separates device discovery, in-memory recording, local transcription, routing coordination, and text-to-speech. Typed Pydantic models carry requests and results between layers.
 
 ## Technology
 
-Python 3.12, PySide6, Pydantic, psutil, pyttsx3, requests, platformdirs, SQLite, and pytest. No paid service, API key, Docker, or administrator access is required.
+Python 3.12, PySide6, Pydantic, psutil, pyttsx3, faster-whisper, sounddevice, NumPy, requests, platformdirs, SQLite, and pytest. No paid service, API key, Docker, or administrator access is required.
 
 ## Security design
 
@@ -35,6 +37,8 @@ Python 3.12, PySide6, Pydantic, psutil, pyttsx3, requests, platformdirs, SQLite,
 - URLs are selected by approved symbolic names.
 - Ollama JSON is schema-validated and policy-validated before it can become a tool request.
 - History stores command outcomes but no credentials or secrets.
+- Audio is processed locally in memory and is not uploaded or saved by default.
+- Transcribed speech must pass through the same deterministic allowlist as typed commands.
 
 ## Supported commands
 
@@ -70,19 +74,34 @@ python -m pytest
 
 Tests mock application launching and system data; they do not open real applications.
 
+## Using microphone commands
+
+Windows must expose at least one enabled input device. Choose a microphone in the selector, use **Refresh microphones** after connecting a device, and use **Test microphone** to validate its input configuration. Click **Microphone**, speak one supported command, and pause. Recording stops after silence or the configured maximum duration. **Stop** ends recording or cancels a pending transcription.
+
+The first use of the default `base.en` faster-whisper model may require a one-time local download. VoxPilot asks before allowing that download; it never requires an API key. Later runs use the cached model. Model, device, compute type, language, beam size, timing, energy threshold, and confidence settings can be changed using the environment variables in `.env.example`.
+
+Microphone audio remains in memory and is zeroed after transcription. Development audio saving exists only through the explicit `VOXPILOT_SAVE_AUDIO=true` opt-in and is disabled by default.
+
+### Windows microphone troubleshooting
+
+- In Windows **Settings > Privacy & security > Microphone**, allow desktop applications to access the microphone.
+- If no device appears, connect or enable it, press **Refresh microphones**, and check Windows Sound input settings.
+- If a device is busy, close other exclusive-mode audio applications and use **Test microphone** again.
+- If model loading fails, confirm the one-time download was approved and that the configured model name is valid. CPU systems should keep `WHISPER_COMPUTE_TYPE=int8`; use `float16` only with confirmed compatible CUDA hardware.
+
 ## Ollama configuration
 
 Ollama is an optional adapter for future interpretation of otherwise unknown requests. Defaults are `http://localhost:11434`, primary model `qwen3:latest`, and fallback `llama3.2:3b`. Configuration can be overridden with the variables shown in `.env.example`. Known deterministic commands do not call Ollama, and no model is permitted to execute commands directly.
 
 ## Known limitations
 
-- The microphone button is informational; there is no speech recognition or wake word yet.
+- Voice input starts only by clicking the Microphone button; there is no wake word.
 - The Stop button reports status but cannot terminate an already launched OS application.
 - Application availability depends on standard Windows registrations and executable names.
 - `Open ChatGPT in Chrome` currently opens the approved URL through the system browser rather than forcing a particular browser.
-- Background tasks use a safe fixed tool set; there is no general automation engine.
+- Speech confidence is language-level because faster-whisper does not expose a single universal utterance confidence value.
+- A timed-out native Whisper inference cannot be forcibly interrupted safely in-process; its late result is ignored.
 
 ## Roadmap
 
-Milestone 2 is planned to add microphone transcription and wake-word behavior. Later milestones may add carefully approved tools and confirmation flows for sensitive actions. Those features are not implemented today.
-
+Milestone 3 may add the "Hey Shyam" wake phrase and carefully designed confirmation flows. Neither wake-word detection nor destructive actions are implemented today.

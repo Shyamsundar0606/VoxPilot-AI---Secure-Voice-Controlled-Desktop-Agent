@@ -10,4 +10,8 @@
 - Keep business logic separate from UI code.
 - Keep Windows-specific behavior behind interfaces.
 - Never claim a test passed unless it actually ran successfully.
-
+- Voice processing must remain local and raw audio must not be stored by default.
+- Automated tests must never access a real microphone.
+- Voice transcription must pass through the existing command allowlist.
+- Every voice worker must terminate safely and expose failure or cancellation.
+- Wake-word detection remains outside Milestone 2.
