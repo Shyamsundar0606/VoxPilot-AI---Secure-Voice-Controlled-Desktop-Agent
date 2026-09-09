@@ -12,6 +12,11 @@ def test_normalization(raw, expected):
     ("What time is it?", "current_time", {}), ("Tell me the time", "current_time", {}),
     ("What is today's date?", "current_date", {}), ("Open Chrome", "open_application", {"application": "chrome"}),
     ("Open ChatGPT", "open_url", {"url_name": "chatgpt"}), ("Open ChatGPT in Chrome", "open_url", {"url_name": "chatgpt"}),
+    ("Open Google", "open_url", {"url_name": "google"}),
+    ("Open Google.", "open_url", {"url_name": "google"}),
+    ("Go to Google", "open_url", {"url_name": "google"}),
+    ("Launch Google", "open_url", {"url_name": "google"}),
+    ("Open Google website", "open_url", {"url_name": "google"}),
     ("Open Spotify", "open_application", {"application": "spotify"}), ("Open Settings", "open_application", {"application": "settings"}),
     ("Open Windows Settings", "open_application", {"application": "settings"}), ("Open Notepad", "open_application", {"application": "notepad"}),
     ("Open Microsoft Word", "open_application", {"application": "word"}), ("Open Word", "open_application", {"application": "word"}),
@@ -33,4 +38,3 @@ def test_unsupported_and_dangerous_commands(command):
     routed = CommandRouter().route(command)
     assert not routed.supported
     assert routed.tool_request is None
-

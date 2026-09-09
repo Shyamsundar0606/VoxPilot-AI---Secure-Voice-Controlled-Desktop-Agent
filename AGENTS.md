@@ -14,4 +14,4 @@
 - Automated tests must never access a real microphone.
 - Voice transcription must pass through the existing command allowlist.
 - Every voice worker must terminate safely and expose failure or cancellation.
-- Wake-word detection remains outside Milestone 2.
+- Wake-word activation must remain local, must never bypass the command allowlist, and must pause during TTS or command handling.

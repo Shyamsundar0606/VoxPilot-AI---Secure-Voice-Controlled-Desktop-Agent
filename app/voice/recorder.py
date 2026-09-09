@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import wave
 from queue import Empty, Queue
-from threading import Event
+from threading import Event, Lock
 from time import monotonic
 
 import numpy as np
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class AudioRecorder:
+    _microphone_lock = Lock()
     def __init__(self, settings, backend=None, device_service: AudioDeviceService | None = None):
         if backend is None:
             import sounddevice as backend
@@ -23,6 +24,8 @@ class AudioRecorder:
         self.sensitivity = getattr(settings, "microphone_sensitivity", "normal")
 
     def test_device(self, requested_index: int | None) -> tuple[bool, str]:
+        if not self._microphone_lock.acquire(blocking=False):
+            return False, "The microphone is already in use."
         try:
             resolved = self.device_service.resolve_for_recording(requested_index)
             with self.backend.InputStream(**self._stream_options(resolved, lambda *_args: None)): pass
@@ -31,8 +34,18 @@ class AudioRecorder:
         except Exception as exc:
             logger.exception("Microphone test failed")
             return False, self._safe_error(exc)
+        finally:
+            self._microphone_lock.release()
 
     def record(self, requested_index: int | None, stop_event: Event, level_callback=None, status_callback=None) -> RecordingResult:
+        if not self._microphone_lock.acquire(blocking=False):
+            return RecordingResult(success=False, error_code="microphone_busy", message="The microphone is already in use.")
+        try:
+            return self._record(requested_index, stop_event, level_callback, status_callback)
+        finally:
+            self._microphone_lock.release()
+
+    def _record(self, requested_index, stop_event, level_callback, status_callback):
         try:
             resolved = self.device_service.resolve_for_recording(requested_index)
         except DeviceResolutionError as exc:
@@ -56,17 +69,22 @@ class AudioRecorder:
             if status: logger.warning("Audio stream status: %s", status)
             chunks.put(np.asarray(indata[:, 0], dtype=np.float32).copy())
 
+        recorded: list[np.ndarray] = []
+        chunk = None
+        last_audio_at = monotonic()
         try:
             with self.backend.InputStream(**self._stream_options(resolved, callback)):
-                recorded: list[np.ndarray] = []
                 while not stop_event.is_set():
                     if post_calibration_samples / source_rate >= self.settings.max_recording_seconds: break
                     try: chunk = chunks.get(timeout=0.1)
                     except Empty:
+                        if monotonic() - last_audio_at > max(1.0, self.settings.initial_wait_seconds):
+                            raise RuntimeError("Microphone stopped delivering audio")
                         if calibrated and not speech_started and calibration_finished_at is not None and monotonic() - calibration_finished_at >= self.settings.initial_wait_seconds:
                             logger.debug("Speech rejected: initial timeout after calibration")
                             break
                         continue
+                    last_audio_at = monotonic()
                     rms = float(np.sqrt(np.mean(np.square(chunk)))) if chunk.size else 0.0
                     peak = float(np.max(np.abs(chunk))) if chunk.size else 0.0
                     if level_callback: level_callback(rms)
@@ -79,6 +97,7 @@ class AudioRecorder:
                             calibrated = True; calibration_finished_at = monotonic()
                             logger.debug("Microphone calibration: noise_floor=%.8f rms_threshold=%.8f sensitivity=%s", noise_floor, rms_threshold, self.sensitivity)
                             if status_callback: status_callback("Listening... Speak your command.")
+                        chunk.fill(0)
                         continue
 
                     frame_start_sample = post_calibration_samples
@@ -108,11 +127,20 @@ class AudioRecorder:
             logger.exception("Audio recording failed for device %s", resolved.identifier)
             code = "invalid_device" if "invalid device" in str(exc).lower() else "audio_stream_error"
             return RecordingResult(success=False, error_code=code, message=self._safe_error(exc))
+        finally:
+            for frame in recorded: frame.fill(0)
+            if chunk is not None: chunk.fill(0)
+            while not chunks.empty():
+                try: chunks.get_nowait().fill(0)
+                except Empty: break
 
         original_duration = len(audio) / source_rate
         speech_duration = ((last_speech_sample - speech_start_sample) / source_rate) if speech_start_sample is not None and last_speech_sample is not None else 0.0
         logger.debug("Detected speech duration: %.3f seconds", speech_duration)
         cancelled = stop_event.is_set()
+        if cancelled:
+            audio.fill(0)
+            return RecordingResult(success=False, cancelled=True, error_code="cancelled", message="Recording cancelled.")
         if speech_duration < self.settings.min_speech_seconds:
             audio.fill(0)
             logger.debug("Speech rejected: duration %.3f below minimum %.3f", speech_duration, self.settings.min_speech_seconds)

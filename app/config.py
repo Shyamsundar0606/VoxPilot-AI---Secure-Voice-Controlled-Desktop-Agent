@@ -7,9 +7,24 @@ from pathlib import Path
 from platformdirs import user_data_path
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WAKE_PHRASE = "Hello"
+
+
+def load_project_env(path: Path | None = None) -> None:
+    """Load the project environment while preserving process overrides."""
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=path or PROJECT_ROOT / ".env", override=False, encoding="utf-8-sig")
+
+
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
     return default if value is None else value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _whisper_device() -> str:
+    """Use CUDA only by explicit request; never let an `auto` probe reach Whisper."""
+    return "cuda" if os.getenv("WHISPER_DEVICE", "cpu").strip().lower() == "cuda" else "cpu"
 
 
 def _whisper_beam_size() -> int:
@@ -38,7 +53,7 @@ class Settings:
     tool_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_TOOL_TIMEOUT", "10")))
     log_level: str = field(default_factory=lambda: os.getenv("VOXPILOT_LOG_LEVEL", "INFO"))
     whisper_model_size: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL_SIZE", "base.en"))
-    whisper_device: str = field(default_factory=lambda: os.getenv("WHISPER_DEVICE", "auto"))
+    whisper_device: str = field(default_factory=_whisper_device)
     whisper_compute_type: str = field(default_factory=lambda: os.getenv("WHISPER_COMPUTE_TYPE", "int8"))
     whisper_language: str = field(default_factory=lambda: os.getenv("WHISPER_LANGUAGE", "en"))
     whisper_beam_size: int = field(default_factory=_whisper_beam_size)
@@ -56,3 +71,5 @@ class Settings:
     save_audio: bool = field(default_factory=lambda: _bool_env("VOXPILOT_SAVE_AUDIO", False))
     voice_settings_path: Path = field(default_factory=lambda: user_data_path("VoxPilot AI", ensure_exists=True) / "voice-settings.json")
     recordings_path: Path = field(default_factory=lambda: user_data_path("VoxPilot AI", ensure_exists=True) / "recordings")
+    wake_word_cooldown: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_WAKE_WORD_COOLDOWN", "1.5")))
+    wake_window_seconds: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_WAKE_WINDOW_SECONDS", "3.0")))

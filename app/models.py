@@ -13,6 +13,9 @@ class Status(str, Enum):
     PROCESSING = "Processing"
     COMPLETED = "Completed"
     FAILED = "Failed"
+    WAKE_LISTENING = "Wake-word listening"
+    WAKE_DETECTED = "Wake detected"
+    COMMAND_LISTENING = "Command listening"
 
 
 class CommandRequest(BaseModel):
@@ -96,3 +99,11 @@ class TranscriptionResult(BaseModel):
     cancelled: bool = False
     error_code: str | None = None
     message: str = ""
+
+
+class WakeWordResult(BaseModel):
+    detected: bool = False
+    cancelled: bool = False
+    error_code: str | None = None
+    message: str = ""
+    processing_time: float = 0.0

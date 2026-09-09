@@ -35,6 +35,8 @@ class CommandRouter:
             return self._tool(base, "help")
         if normalized in {"open chatgpt", "open chat gpt"}:
             return self._tool(base, "open_url", url_name="chatgpt")
+        if normalized in {"open google", "go to google", "launch google", "open google website"}:
+            return self._tool(base, "open_url", url_name="google")
         if normalized in {"open chatgpt in chrome", "open chat gpt in chrome"}:
             return self._tool(base, "open_url", url_name="chatgpt")
         if normalized.startswith(("open ", "launch ", "start ")):
@@ -48,4 +50,3 @@ class CommandRouter:
     @staticmethod
     def _tool(base: dict[str, str], name: str, **arguments: str) -> RoutedCommand:
         return RoutedCommand(**base, supported=True, tool_request=ToolRequest(tool_name=name, arguments=arguments))
-

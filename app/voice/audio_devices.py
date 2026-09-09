@@ -31,11 +31,23 @@ class DeviceSelectionStore:
     def save(self, device: AudioDevice | None) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
-        data = None if device is None else {
+        existing = self.load() or {}
+        data = existing if device is None else {
+            **existing,
             "name": device.name,
             "host_api": device.host_api_name,
             "last_runtime_index": device.identifier,
         }
+        temporary.write_text(json.dumps(data), encoding="utf-8")
+        temporary.replace(self.path)
+
+    def wake_word_enabled(self) -> bool:
+        return bool((self.load() or {}).get("wake_word_enabled", False))
+
+    def save_wake_word_enabled(self, enabled: bool) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        data = {**(self.load() or {}), "wake_word_enabled": bool(enabled)}
+        temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(data), encoding="utf-8")
         temporary.replace(self.path)
 

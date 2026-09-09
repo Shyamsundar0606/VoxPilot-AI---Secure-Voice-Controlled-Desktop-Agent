@@ -85,3 +85,11 @@ def test_persistence_uses_name_and_host_api(tmp_path):
     service = AudioDeviceService(FakeBackend(), store); service.save_selected(2)
     saved = store.load()
     assert saved["name"] == "Realtek Array" and saved["host_api"] == "Windows WASAPI"
+
+
+def test_wake_word_setting_persists_without_losing_device(tmp_path):
+    store = DeviceSelectionStore(tmp_path / "voice.json")
+    store.save(AudioDevice(identifier=2, name="Realtek Array", host_api_name="Windows WASAPI"))
+    store.save_wake_word_enabled(True)
+    assert store.wake_word_enabled()
+    assert store.load()["name"] == "Realtek Array"

@@ -82,6 +82,14 @@ The first use of the default `base.en` faster-whisper model may require a one-ti
 
 Microphone audio remains in memory and is zeroed after transcription. Development audio saving exists only through the explicit `VOXPILOT_SAVE_AUDIO=true` opt-in and is disabled by default.
 
+## Wake-word mode
+
+Enable **Wake-word mode: "Hello"** to listen locally for the wake phrase. VoxPilot uses short, energy-gated audio windows and invokes the shared faster-whisper model only when speech is detected; it does not run Whisper on every audio frame. After hearing the phrase, Shyam replies **“Yes, how can I help you?”**, waits through a self-trigger cooldown, records one command, sends that text through the existing deterministic allowlist, and then resumes wake listening.
+
+Manual microphone and typed commands remain available. Starting either pauses the wake listener first. Stop disables and cancels wake mode. Continuous audio stays in memory and is never saved. On CPU, this fallback is more resource-intensive and slower than a purpose-built wake engine, but it requires no cloud service or custom wake model.
+
+The fixed wake phrase is configured by `WAKE_PHRASE = "Hello"` in `app/config.py`. Matching requires the entire normalized transcription: `Hello`, `hello`, `HELLO!` and `Hello.` activate it, including surrounding whitespace. `Hey Shyam`, `Hello Google` and `Open Chrome` do not activate it. The wake utterance is consumed before command routing and never enters command history. The acknowledgement remains “Yes, how can I help you?”
+
 ### Windows microphone troubleshooting
 
 - In Windows **Settings > Privacy & security > Microphone**, allow desktop applications to access the microphone.
@@ -95,13 +103,13 @@ Ollama is an optional adapter for future interpretation of otherwise unknown req
 
 ## Known limitations
 
-- Voice input starts only by clicking the Microphone button; there is no wake word.
+- Wake detection uses short-window Whisper fallback rather than a dedicated custom "Hello" model, so latency depends on CPU performance.
 - The Stop button reports status but cannot terminate an already launched OS application.
 - Application availability depends on standard Windows registrations and executable names.
 - `Open ChatGPT in Chrome` currently opens the approved URL through the system browser rather than forcing a particular browser.
 - Speech confidence is language-level because faster-whisper does not expose a single universal utterance confidence value.
-- A timed-out native Whisper inference cannot be forcibly interrupted safely in-process; its late result is ignored.
+- Native Whisper runs in one persistent local worker process shared by wake and command transcription. Stop or timeout terminates that process; the model loads again on the next request. Normal speech windows reuse the loaded model. Native TTS is also isolated so a timeout cannot leave audible speech running while capture resumes.
 
 ## Roadmap
 
-Milestone 3 may add the "Hey Shyam" wake phrase and carefully designed confirmation flows. Neither wake-word detection nor destructive actions are implemented today.
+Future milestones may add a dedicated custom wake model and carefully designed confirmation flows. Destructive actions remain unimplemented.
