@@ -304,6 +304,8 @@ class MainWindow(QMainWindow):
     def _complete(self, result):
         try:
             if self._cancelled: return
+            if not result.store_history:
+                self._set_status(result.status); return
             self.result_panel.setText(result.result_message); self._set_status(result.status)
             self.history.insertItem(0, f"{result.status.value}: {result.original_command} — {result.result_message}"); self.input.clear()
             try: self.repository.add(result)
@@ -326,6 +328,7 @@ class MainWindow(QMainWindow):
         elif self._voice_thread is not None:
             self._voice_cancel.set(); self._voice_thread.requestInterruption(); self.result_panel.setText("Voice operation cancelled.")
         elif self._active_thread is not None:
+            if isinstance(self._active_worker, CommandWorker): self._active_worker.cancel_event.set()
             self._active_thread.requestInterruption(); self.result_panel.setText("Cancellation requested. The current safe operation will stop where possible.")
         else: self.result_panel.setText("No cancellable action is currently running.")
         self._set_status(Status.IDLE); self.audio_level.setValue(0)
@@ -373,6 +376,7 @@ class MainWindow(QMainWindow):
         self._transition_generation += 1
         self._tts_pending = False
         self._cancelled = True; self._voice_cancel.set()
+        if isinstance(self._active_worker, CommandWorker): self._active_worker.cancel_event.set()
         self.wake_toggle.blockSignals(True); self.wake_toggle.setChecked(False); self.wake_toggle.blockSignals(False)
         self._wake_cancel.set()
         active = [thread for thread in (self._wake_thread, self._voice_thread, self._active_thread) if thread is not None]

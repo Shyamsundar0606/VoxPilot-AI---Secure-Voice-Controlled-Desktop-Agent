@@ -8,6 +8,8 @@ from PySide6.QtWidgets import QApplication
 
 from app.agent.executor import CommandExecutor
 from app.agent.router import CommandRouter
+from app.agent.intent_planner import IntentPlanner
+from app.agent.ollama_client import OllamaClient
 from app.config import Settings, load_project_env
 from app.database.repository import HistoryRepository
 from app.ui.main_window import MainWindow
@@ -24,7 +26,8 @@ def main() -> int:
     settings = Settings()
     logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     application = QApplication(sys.argv)
-    executor = CommandExecutor()
+    planner = IntentPlanner(OllamaClient(settings.ollama_base_url, settings.intent_model, timeout=settings.intent_timeout), settings.intent_min_confidence)
+    executor = CommandExecutor(planner=planner)
     device_service = AudioDeviceService(store=DeviceSelectionStore(settings.voice_settings_path), target_sample_rate=settings.sample_rate)
     transcriber = SpeechTranscriber(settings)
     wake_settings = replace(settings, save_audio=False, max_recording_seconds=settings.wake_window_seconds, initial_wait_seconds=settings.wake_window_seconds, silence_seconds=0.5, calibration_seconds=0.3)
@@ -32,7 +35,7 @@ def main() -> int:
     window = MainWindow(
         settings, executor, HistoryRepository(settings.database_path), TextToSpeech(settings.speech_enabled),
         device_service=device_service, recorder=AudioRecorder(settings, device_service=device_service), transcriber=transcriber,
-        voice_controller=VoiceCommandController(CommandRouter(), executor), wake_controller=wake_controller,
+        voice_controller=VoiceCommandController(CommandRouter(), executor, allow_intent_planning=True), wake_controller=wake_controller,
     )
     window.show()
     return application.exec()

@@ -9,7 +9,7 @@ from app.tools.system_tools import SystemTools
 from app.tools.web_tools import WebTools
 
 
-HELP_MESSAGE = "I can tell the time or date, check battery or storage, and open Chrome, ChatGPT, Spotify, Settings, Notepad, Word, Calculator, VS Code, or File Explorer."
+HELP_MESSAGE = "I can tell the time or date, check battery or storage, search Google, and open Chrome, ChatGPT, Spotify, Settings, Notepad, Word, Calculator, VS Code, or File Explorer."
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +31,7 @@ class ToolRegistry:
             "storage_status": self.system.storage_status,
             "open_application": self.applications.open_application,
             "open_url": self.web.open_url,
+            "search_google": self.web.search_google,
             "help": lambda: ToolResult(success=True, message=HELP_MESSAGE),
         }
         try:

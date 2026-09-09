@@ -43,6 +43,7 @@ class ToolResult(BaseModel):
 
 
 class ExecutionResult(BaseModel):
+    store_history: bool = True
     original_command: str
     normalized_command: str
     selected_tool: str | None

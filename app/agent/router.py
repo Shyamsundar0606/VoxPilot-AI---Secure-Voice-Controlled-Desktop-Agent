@@ -21,6 +21,18 @@ class CommandRouter:
     def route(self, command: str) -> RoutedCommand:
         normalized = normalize_command(command)
         base = {"original_command": command, "normalized_command": normalized}
+        # Match the instruction on raw text: query punctuation/case is data.
+        # A matched search never falls through to a model that could rewrite
+        # an invalid query; executor policy validation rejects it instead.
+        for pattern in (
+            r"search +google +for(?: +(?P<query>.*))?",
+            r"google(?: +(?P<query>.*))?",
+            r"open +google +and +search +for(?: +(?P<query>.*))?",
+            r"find +(?P<query>.*?) +on +google",
+        ):
+            match = re.fullmatch(pattern, command.strip(" "), re.I | re.S)
+            if match:
+                return self._tool(base, "search_google", query=match.group("query") or "")
         if not normalized:
             return RoutedCommand(**base, supported=False, response="Please enter a command.")
         if normalized in {"what time is it", "tell me the time", "what is the time", "current time"}:

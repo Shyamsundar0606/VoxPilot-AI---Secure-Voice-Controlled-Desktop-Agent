@@ -6,6 +6,7 @@ from threading import Event
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from app.models import ExecutionResult, Status
+from app.agent.executor import CommandExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -62,20 +63,24 @@ class CommandWorker(QObject):
     def __init__(self, executor, command: str):
         super().__init__()
         self.executor, self.command = executor, command
+        self.cancel_event = Event()
 
     @Slot()
     def run(self):
         result = None
         try:
-            if QThread.currentThread().isInterruptionRequested():
+            if self.cancel_event.is_set() or QThread.currentThread().isInterruptionRequested():
                 result = self._cancelled_result()
             else:
-                result = self.executor.execute(self.command)
+                if isinstance(self.executor, CommandExecutor):
+                    result = self.executor.execute(self.command, self.cancel_event)
+                else:
+                    result = self.executor.execute(self.command)
         except Exception as exc:
-            logger.exception("Unhandled command worker failure")
+            logger.error("Unhandled command worker failure: %s", type(exc).__name__)
             result = ExecutionResult(
-                original_command=self.command,
-                normalized_command=" ".join(self.command.lower().split()),
+                original_command="[Command failed]",
+                normalized_command="",
                 selected_tool=None,
                 status=Status.FAILED,
                 result_message="The command could not be completed safely.",
@@ -88,8 +93,8 @@ class CommandWorker(QObject):
 
     def _cancelled_result(self):
         return ExecutionResult(
-            original_command=self.command,
-            normalized_command=" ".join(self.command.lower().split()),
+            original_command="[Cancelled request]",
+            normalized_command="",
             selected_tool=None,
             status=Status.FAILED,
             result_message="The pending command was cancelled.",

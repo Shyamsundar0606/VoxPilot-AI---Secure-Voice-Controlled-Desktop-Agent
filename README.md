@@ -99,7 +99,21 @@ The fixed wake phrase is configured by `WAKE_PHRASE = "Hello"` in `app/config.py
 
 ## Ollama configuration
 
-Ollama is an optional adapter for future interpretation of otherwise unknown requests. Defaults are `http://localhost:11434`, primary model `qwen3:latest`, and fallback `llama3.2:3b`. Configuration can be overridden with the variables shown in `.env.example`. Known deterministic commands do not call Ollama, and no model is permitted to execute commands directly.
+Google search is a fixed-endpoint approved tool. `Search Google for EPITA`, `Google EPITA`, `Open Google and search for EPITA`, and `Find EPITA on Google` route deterministically. Other clear wording may use the local planner, which must return `search_google` with exactly `{"query": "EPITA"}` as its arguments. The model cannot provide a domain, URL, scheme or executable.
+
+Queries must contain 1–300 characters and no controls, line breaks, complete URLs or URI schemes. Case, Unicode, spaces and punctuation are preserved as search data and encoded with `urllib.parse.urlencode` into `https://www.google.com/search?q=...`. Shell-like punctuation is only search text. `Open Google` still opens the homepage. Search submits the query to Google through the browser; intent interpretation remains local. No general URL browsing tool is added.
+
+Milestone 4 uses Ollama only when the deterministic router does not recognize a command. The default local model is `llama3.2:3b`. Exact commands continue working when Ollama is stopped. Install Ollama and pull the model once with `ollama pull llama3.2:3b`; model downloads require internet, but intent processing stays local. No model download is initiated by VoxPilot.
+
+Configure `VOXPILOT_INTENT_MODEL` (default `llama3.2:3b`), `VOXPILOT_INTENT_TIMEOUT` (default 8 seconds, maximum 30), and `VOXPILOT_INTENT_MIN_CONFIDENCE` (default 0.85) through the environment. `VOXPILOT_OLLAMA_BASE_URL` must be an HTTP localhost/loopback endpoint. The intent model setting is independent of the legacy primary/fallback model settings. A cold model may need to be warmed in Ollama before a short request can finish.
+
+Try “Could you bring up Spotify please?”, “Launch my browser please”, “How much battery remains?” or “What date are we on?”. Typed and transcribed requests use the same background command worker. Stop cancels a pending local request; it cannot undo an application already launched.
+
+Ollama must return only `intent`, `arguments`, `confidence` and `requires_confirmation`. Strict Pydantic validation rejects unknown intents, extra or missing fields, incorrect types, duplicate JSON keys and invalid arguments. Public intents `get_time`, `get_date` and `open_safe_url` map to existing internal tools `current_time`, `current_date` and `open_url`. The planner checks confidence and target agreement with the user's words, then the executor and registry independently enforce existing allowlists. Requests needing confirmation are rejected until an approval workflow is implemented.
+
+The client disables proxies and redirects and checks local model metadata before submitting user text. Cloud model names and remote-model aliases are rejected. For a fully local Ollama server, start it with `OLLAMA_NO_CLOUD=1` as described in the [Ollama FAQ](https://docs.ollama.com/faq). Schema-constrained generation follows [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs); server-side formatting never replaces local validation.
+
+Natural-language history stores only the validated tool and allowlisted target, or a generic failed-request label. Raw free-form prompts and model responses are not persisted by VoxPilot or logged. Obvious secret-bearing, destructive, shell, installation, security-change and instruction-override requests are rejected before inference. The exact wake phrase “Hello” is consumed without reaching Ollama or history. Conservative checks also reject compound and negative requests; use a single explicit positive request.
 
 ## Known limitations
 
