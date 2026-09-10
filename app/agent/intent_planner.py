@@ -9,6 +9,7 @@ from app.agent.ollama_client import OllamaError
 from app.agent.schemas import parse_intent
 from app.models import ToolRequest
 from app.security.validators import validate_tool_request
+from app.security.filesystem_policy import FILESYSTEM_TOOLS
 from app.voice.wake_word import is_wake_phrase
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class IntentPlanner:
             parsed = parse_intent(self.client.complete(text, cancel))
             intent = parsed.intent
             if cancel.is_set(): return Plan(message="Intent request cancelled.")
-            if parsed.confidence < self.min_confidence or parsed.requires_confirmation: return Plan()
+            if parsed.confidence < self.min_confidence or (parsed.requires_confirmation and parsed.intent != "create_folder"): return Plan()
             request = parsed.to_request()
             validate_tool_request(request)
             if not self._grounded(text, request): return Plan()
@@ -64,6 +65,17 @@ class IntentPlanner:
     @staticmethod
     def _grounded(text, request):
         """Require a recognizable target; model confidence alone cannot authorize it."""
+        if request.tool_name in FILESYSTEM_TOOLS:
+            args = request.arguments
+            if re.search(r"(?<!\w)" + re.escape(args["root"]) + r"(?!\w)", text, re.I) is None: return False
+            cues = {"open_folder": r"\b(open|show|folder)\b", "list_directory": r"\b(list|show|files|folders)\b",
+                    "find_file": r"\b(find|locate|search)\b", "file_info": r"\b(info|information|size|details)\b",
+                    "create_folder": r"\b(create|make|new)\b"}
+            if re.search(cues[request.tool_name], text, re.I) is None: return False
+            for key in ("relative_path", "relative_parent", "folder_name", "query"):
+                value = args.get(key, "")
+                if value and value.casefold() not in text.casefold(): return False
+            return True
         if request.tool_name == "search_google":
             query = request.arguments["query"].strip()
             return (re.search(r"\bgoogle\b", text, re.I) is not None

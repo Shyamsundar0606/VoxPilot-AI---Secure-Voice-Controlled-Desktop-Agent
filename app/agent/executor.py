@@ -8,17 +8,22 @@ from app.models import ExecutionResult, Status
 from app.tools.registry import ToolRegistry
 from app.security.validators import validate_tool_request
 from app.voice.wake_word import is_wake_phrase
+from app.security.filesystem_policy import FILESYSTEM_TOOLS
+from app.security.confirmations import Confirmations
+from app.models import ToolRequest
 
 
 class CommandExecutor:
-    def __init__(self, router=None, registry=None, planner=None):
+    def __init__(self, router=None, registry=None, planner=None, confirmations=None):
         self.router = router or CommandRouter()
         self.registry = registry or ToolRegistry()
         self.planner = planner
+        self.confirmations = confirmations or Confirmations()
 
     def execute(self, command: str, cancel_event=None) -> ExecutionResult:
         started = perf_counter()
         cancel = cancel_event or Event()
+        self.confirmations.cancel()  # A new request invalidates every prior proposal.
         if is_wake_phrase(command):
             return ExecutionResult(original_command="", normalized_command="", selected_tool=None,
                                    status=Status.IDLE, result_message="Wake phrase consumed.", store_history=False)
@@ -36,15 +41,36 @@ class CommandExecutor:
                 return self._result(routed, None, False, plan.message, None, started)
             routed.tool_request = plan.request
             routed.original_command = routed.normalized_command = " ".join(
-                [plan.request.tool_name, *plan.request.arguments.values()])
+                [plan.request.tool_name, *(str(value) for value in plan.request.arguments.values())])
         if cancel.is_set():
             return self._result(routed, None, False, "Command cancelled.", None, started)
         try:
             validate_tool_request(routed.tool_request)
         except ValueError:
             return self._result(routed, None, False, "The requested action is not approved.", None, started)
+        if routed.tool_request.tool_name in FILESYSTEM_TOOLS:
+            tool_result = self.registry.execute(routed.tool_request, cancel)
+            result = self._result(routed, routed.tool_request.tool_name, tool_result.success, tool_result.message, tool_result.error, started)
+            result.store_history = False  # Do not persist directory listings or local paths.
+            if tool_result.success and tool_result.data.get("proposal") and not cancel.is_set():
+                token = self.confirmations.propose(routed.tool_request, tool_result.data["identity"])
+                result.confirmation = {"token": token, "parent": tool_result.data["parent"],
+                    "folder_name": tool_result.data["folder_name"], "timeout": self.confirmations.timeout}
+            return result
         tool_result = self.registry.execute(routed.tool_request)
         return self._result(routed, routed.tool_request.tool_name, tool_result.success, tool_result.message, tool_result.error, started)
+
+    def confirm(self, token, cancel_event=None):
+        cancel = cancel_event or Event()
+        pending = self.confirmations.take(token)
+        message, success = "Confirmation expired or was cancelled. Request the folder again.", False
+        if pending is not None and not cancel.is_set():
+            request = ToolRequest.model_validate_json(pending.request_json)
+            validate_tool_request(request)
+            outcome = self.registry.filesystem.execute(request, cancel, expected=list(pending.identity))
+            message, success = outcome.message, outcome.success
+        return ExecutionResult(original_command="create_folder", normalized_command="create_folder", selected_tool="create_folder",
+            status=Status.COMPLETED if success else Status.FAILED, result_message=message, store_history=False)
 
     @staticmethod
     def _result(routed, tool, success, message, error, started):

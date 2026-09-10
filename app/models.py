@@ -16,6 +16,7 @@ class Status(str, Enum):
     WAKE_LISTENING = "Wake-word listening"
     WAKE_DETECTED = "Wake detected"
     COMMAND_LISTENING = "Command listening"
+    AWAITING_CONFIRMATION = "Awaiting confirmation"
 
 
 class CommandRequest(BaseModel):
@@ -43,6 +44,7 @@ class ToolResult(BaseModel):
 
 
 class ExecutionResult(BaseModel):
+    confirmation: dict[str, Any] | None = None
     store_history: bool = True
     original_command: str
     normalized_command: str

@@ -8,14 +8,16 @@ from app.security.validators import validate_tool_request
 
 class IntentOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    intent: Literal["open_application", "open_safe_url", "search_google", "get_time", "get_date", "battery_status", "storage_status", "help"]
-    arguments: dict[str, str]
+    intent: Literal["open_application", "open_safe_url", "search_google", "get_time", "get_date", "battery_status", "storage_status", "help", "open_folder", "list_directory", "find_file", "create_folder", "file_info"]
+    arguments: dict[str, str | int]
     confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     requires_confirmation: bool
 
     @model_validator(mode="after")
     def check_arguments(self):
         validate_tool_request(self.to_request())
+        from app.security.policy import CONFIRMATION_REQUIRED_TOOLS
+        if self.intent in CONFIRMATION_REQUIRED_TOOLS: self.requires_confirmation = True
         return self
 
     def to_request(self):

@@ -9,21 +9,27 @@ from app.tools.system_tools import SystemTools
 from app.tools.web_tools import WebTools
 
 
-HELP_MESSAGE = "I can tell the time or date, check battery or storage, search Google, and open Chrome, ChatGPT, Spotify, Settings, Notepad, Word, Calculator, VS Code, or File Explorer."
+HELP_MESSAGE = "I can tell the time or date, check battery or storage, search Google, and open approved applications. I can open or list approved folders, find files by name, show file information, and propose creating a folder for your confirmation."
 logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    def __init__(self, system=None, applications=None, web=None):
+    def __init__(self, system=None, applications=None, web=None, filesystem=None):
         self.system = system or SystemTools()
         self.applications = applications or ApplicationTools()
         self.web = web or WebTools()
+        self.filesystem = filesystem
 
-    def execute(self, request: ToolRequest) -> ToolResult:
+    def execute(self, request: ToolRequest, cancel_event=None) -> ToolResult:
         try:
             validate_tool_request(request)
-        except PolicyViolation as exc:
-            return ToolResult(success=False, message=str(exc), error="Policy violation")
+        except ValueError:
+            return ToolResult(success=False, message="The requested tool or arguments are not approved.", error="Policy violation")
+        from app.security.filesystem_policy import FILESYSTEM_TOOLS
+        if request.tool_name in FILESYSTEM_TOOLS:
+            if self.filesystem is None: return ToolResult(success=False, message="File operations are not configured.")
+            # create_folder always prepares a proposal here, never writes.
+            return self.filesystem.execute(request, cancel_event)
         handlers = {
             "current_time": self.system.current_time,
             "current_date": self.system.current_date,

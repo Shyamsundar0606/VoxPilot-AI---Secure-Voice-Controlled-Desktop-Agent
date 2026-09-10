@@ -109,11 +109,23 @@ Configure `VOXPILOT_INTENT_MODEL` (default `llama3.2:3b`), `VOXPILOT_INTENT_TIME
 
 Try “Could you bring up Spotify please?”, “Launch my browser please”, “How much battery remains?” or “What date are we on?”. Typed and transcribed requests use the same background command worker. Stop cancels a pending local request; it cannot undo an application already launched.
 
-Ollama must return only `intent`, `arguments`, `confidence` and `requires_confirmation`. Strict Pydantic validation rejects unknown intents, extra or missing fields, incorrect types, duplicate JSON keys and invalid arguments. Public intents `get_time`, `get_date` and `open_safe_url` map to existing internal tools `current_time`, `current_date` and `open_url`. The planner checks confidence and target agreement with the user's words, then the executor and registry independently enforce existing allowlists. Requests needing confirmation are rejected until an approval workflow is implemented.
+Ollama must return only `intent`, `arguments`, `confidence` and `requires_confirmation`. Strict Pydantic validation rejects unknown intents, extra or missing fields, incorrect types, duplicate JSON keys and invalid arguments. Public intents `get_time`, `get_date` and `open_safe_url` map to existing internal tools `current_time`, `current_date` and `open_url`. The planner checks confidence and target agreement with the user's words, then the executor and registry independently enforce existing allowlists. Folder creation always enters the explicit confirmation workflow. Other model requests marked as needing confirmation remain rejected.
 
 The client disables proxies and redirects and checks local model metadata before submitting user text. Cloud model names and remote-model aliases are rejected. For a fully local Ollama server, start it with `OLLAMA_NO_CLOUD=1` as described in the [Ollama FAQ](https://docs.ollama.com/faq). Schema-constrained generation follows [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs); server-side formatting never replaces local validation.
 
 Natural-language history stores only the validated tool and allowlisted target, or a generic failed-request label. Raw free-form prompts and model responses are not persisted by VoxPilot or logged. Obvious secret-bearing, destructive, shell, installation, security-change and instruction-override requests are rejected before inference. The exact wake phrase “Hello” is consumed without reaching Ollama or history. Conservative checks also reject compound and negative requests; use a single explicit positive request.
+
+## Local files and folders (Milestone 5)
+
+File commands operate only inside approved local folders. Desktop, Documents, Downloads, Pictures, Music and Videos are resolved through Windows Known Folder APIs, including relocated folder names, and then checked against filesystem policy. Use **Approve project folder** while listening is stopped to add a project. Its assigned identifier (for example `project_1`) is saved in the application's `approved-roots.json` settings and can be used in commands.
+
+Examples: `Open my Documents folder`, `Open Downloads`, `Show files in Downloads`, `List folders in Documents`, `Find my resume in Documents`, `Find files named invoice`, and `Show information about resume.pdf`. The last command defaults to Documents; append `in downloads` to choose another root. Rootless file searches search all approved roots. Search matches visible file names, never file contents. It does not open files or execute them. Results are bounded and marked when truncated.
+
+`Create a folder called Internship Applications in Documents` prepares a proposal without writing. Review the exact parent and folder name in the confirmation panel, then select **Confirm** or **Cancel**. You can use the manual Microphone button to say exactly `Confirm` or `Cancel`. The confirmation expires, is invalidated by another command, and is cancelled by Stop. The model cannot disable this requirement. The destination must not already exist. Wake listening pauses while confirmation is pending and resumes after the action, cancellation or expiry; Stop retains its existing behavior of disabling wake mode.
+
+Default limits are five seconds per operation, search depth four, 100 returned entries, and 30 seconds to confirm. Configure `VOXPILOT_FILESYSTEM_TIMEOUT`, `VOXPILOT_FILESYSTEM_MAX_DEPTH`, `VOXPILOT_FILESYSTEM_MAX_RESULTS`, and `VOXPILOT_CONFIRMATION_TIMEOUT` via the environment; hard caps also apply. Enumeration and OS operations run outside the GUI in bounded worker processes. Listings and local paths are displayed but are not saved in normal command history or sent to Ollama. Only the user's command text can reach local intent planning.
+
+Absolute paths, traversal, device/UNC/network paths, removable drives, alternate streams, hidden/system locations, credential locations, `.git`, virtual environments and all symlinks/junctions are rejected. Root and target paths are revalidated before execution. The policy deliberately rejects even internal links and some redirected/OneDrive folders. No delete, rename, move, copy or existing-file modification is supported. Folder creation is the only user-file write operation; approving roots also updates the application's own settings.
 
 ## Known limitations
 
@@ -126,4 +138,4 @@ Natural-language history stores only the validated tool and allowlisted target, 
 
 ## Roadmap
 
-Future milestones may add a dedicated custom wake model and carefully designed confirmation flows. Destructive actions remain unimplemented.
+Future milestones may add a dedicated custom wake model and additional carefully designed approval flows. Destructive actions remain unimplemented.

@@ -21,6 +21,10 @@ class CommandRouter:
     def route(self, command: str) -> RoutedCommand:
         normalized = normalize_command(command)
         base = {"original_command": command, "normalized_command": normalized}
+        from app.agent.file_routing import file_request
+        file_tool = file_request(command)
+        if file_tool is not None:
+            return RoutedCommand(**base, supported=True, tool_request=file_tool)
         # Match the instruction on raw text: query punctuation/case is data.
         # A matched search never falls through to a model that could rewrite
         # an invalid query; executor policy validation rejects it instead.

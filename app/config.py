@@ -76,3 +76,8 @@ class Settings:
     recordings_path: Path = field(default_factory=lambda: user_data_path("VoxPilot AI", ensure_exists=True) / "recordings")
     wake_word_cooldown: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_WAKE_WORD_COOLDOWN", "1.5")))
     wake_window_seconds: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_WAKE_WINDOW_SECONDS", "3.0")))
+    filesystem_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_FILESYSTEM_TIMEOUT", "5")))
+    filesystem_max_depth: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_FILESYSTEM_MAX_DEPTH", "4")))
+    filesystem_max_results: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_FILESYSTEM_MAX_RESULTS", "100")))
+    confirmation_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_CONFIRMATION_TIMEOUT", "30")))
+    approved_roots_path: Path = field(default_factory=lambda: user_data_path("VoxPilot AI", ensure_exists=True) / "approved-roots.json")

@@ -60,10 +60,11 @@ class VoiceSignalRelay(QObject):
 class CommandWorker(QObject):
     finished = Signal(object)
 
-    def __init__(self, executor, command: str):
+    def __init__(self, executor, command: str, confirmation_token=None):
         super().__init__()
         self.executor, self.command = executor, command
         self.cancel_event = Event()
+        self.confirmation_token = confirmation_token
 
     @Slot()
     def run(self):
@@ -73,7 +74,8 @@ class CommandWorker(QObject):
                 result = self._cancelled_result()
             else:
                 if isinstance(self.executor, CommandExecutor):
-                    result = self.executor.execute(self.command, self.cancel_event)
+                    result = (self.executor.confirm(self.confirmation_token, self.cancel_event) if self.confirmation_token
+                              else self.executor.execute(self.command, self.cancel_event))
                 else:
                     result = self.executor.execute(self.command)
         except Exception as exc:
@@ -100,6 +102,26 @@ class CommandWorker(QObject):
             result_message="The pending command was cancelled.",
             error_message="Cancelled",
         )
+
+
+class ProjectRootWorker(QObject):
+    finished = Signal(object)
+
+    def __init__(self, roots, path):
+        super().__init__()
+        self.roots, self.path = roots, path
+        self.cancel_event = Event()
+
+    @Slot()
+    def run(self):
+        try:
+            if self.cancel_event.is_set(): raise ValueError()
+            key = self.roots.add_project(self.path, self.cancel_event)
+            message, status = f"Approved project location: {key}. Use this identifier in file commands.", Status.COMPLETED
+        except Exception:
+            message, status = "That project location is unavailable or is not permitted.", Status.FAILED
+        self.finished.emit(ExecutionResult(original_command="Approve project location", normalized_command="", selected_tool=None,
+            status=status, result_message=message, store_history=False))
 
 
 class RecordingWorker(QObject):

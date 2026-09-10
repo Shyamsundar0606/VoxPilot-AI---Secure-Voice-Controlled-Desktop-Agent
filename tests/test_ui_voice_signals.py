@@ -121,3 +121,63 @@ def test_manual_result_uses_explicit_source_and_ignores_stale_worker(ui):
     assert window._voice_result is None
     finish_transcription(window, "Open Google")
     router.route.assert_called_once_with("Open Google")
+
+
+def directory_result(message="resume.pdf\nApplications/", store_history=False):
+    return ExecutionResult(original_command="List files in Documents", normalized_command="list files in documents",
+        selected_tool="list_directory", status=Status.COMPLETED, result_message=message, store_history=store_history)
+
+
+@pytest.mark.parametrize("store_history", [False, True])
+def test_wake_resumption_preserves_completed_result(ui, store_history):
+    window, _ = ui
+    window.wake_toggle.blockSignals(True)
+    window.wake_toggle.setChecked(True)
+    window.wake_toggle.blockSignals(False)
+    window._after_tts = lambda callback: callback()
+    result = directory_result(store_history=store_history)
+    window._wake_command_pending = True
+    window._complete(result)
+    window._command_finished()
+    assert window._wake_worker is not None
+    assert window.status.text() == "Status: Wake-word listening"
+    assert window.result_panel.toPlainText() == result.result_message
+    window._wake_worker.state_changed.emit("Processing")
+    window._wake_worker.state_changed.emit("Wake-word listening")
+    assert window.result_panel.toPlainText() == result.result_message
+
+
+def test_listing_survives_next_activation_and_capture_until_new_result(ui):
+    window, _ = ui
+    result = directory_result()
+    window._complete(result)
+    window.wake_toggle.setChecked(True)
+    worker, thread = window._wake_worker, window._wake_thread
+    window._after_tts = lambda callback: callback()
+    worker.activation.emit("Hello")
+    assert window.status.text() == "Status: Wake detected"
+    assert window.result_panel.toPlainText() == result.result_message
+    thread.finished.emit()
+    assert window.status.text() == "Status: Command listening"
+    window._voice_worker.status_changed.emit("Listening... Speak your command.")
+    assert window.result_panel.toPlainText() == result.result_message
+    finish_recording(window)
+    assert window.status.text() == "Status: Processing"
+    assert window.result_panel.toPlainText() == result.result_message
+    finish_transcription(window, "Open Google")
+    assert window.result_panel.toPlainText() == result.result_message
+    window._active_worker.finished.emit(directory_result("Next command result"))
+    assert window.result_panel.toPlainText() == "Next command result"
+
+
+def test_wake_failure_and_stop_do_not_erase_listing(ui):
+    window, _ = ui
+    result = directory_result()
+    window._complete(result)
+    window.wake_toggle.setChecked(True)
+    window._wake_worker.failed.emit("Microphone unavailable")
+    assert window.status.text() == "Status: Failed"
+    assert window.status.toolTip() == "Microphone unavailable"
+    assert window.result_panel.toPlainText() == result.result_message
+    window.stop()
+    assert window.result_panel.toPlainText() == result.result_message

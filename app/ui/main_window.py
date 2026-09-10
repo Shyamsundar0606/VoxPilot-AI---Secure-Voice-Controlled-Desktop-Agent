@@ -6,14 +6,14 @@ from threading import Event
 from PySide6.QtCore import QThread, QTimer, Slot
 from PySide6.QtWidgets import (
     QCheckBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget, QFileDialog,
 )
 
 from app.models import Status
 from app.config import WAKE_PHRASE
 from app.ui.microphone_settings import MicrophoneSettings
 from app.ui.styles import DARK_STYLE
-from app.ui.workers import CommandWorker, RecordingWorker, TranscriptionWorker, WakeWordWorker, VoiceSource, VoiceSignalRelay
+from app.ui.workers import CommandWorker, RecordingWorker, TranscriptionWorker, WakeWordWorker, VoiceSource, VoiceSignalRelay, ProjectRootWorker
 from app.voice.wake_word import is_wake_phrase
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,11 @@ class MainWindow(QMainWindow):
         self._close_pending = False
         self._transition_generation = 0
         self._tts_pending = False
+        self._confirmation = None
+        self._voice_confirmation_token = None
+        self._confirmation_timer = QTimer(self)
+        self._confirmation_timer.setSingleShot(True)
+        self._confirmation_timer.timeout.connect(lambda: self._cancel_confirmation("Confirmation expired."))
         self.setWindowTitle(settings.app_name); self.resize(900, 760); self.setStyleSheet(DARK_STYLE)
         self._build_ui(); self._load_history(); self._set_idle_controls()
 
@@ -65,16 +70,36 @@ class MainWindow(QMainWindow):
         self.command_panel = QTextEdit(); self.command_panel.setReadOnly(True); self.command_panel.setMaximumHeight(80)
         self.result_panel = QTextEdit(); self.result_panel.setReadOnly(True); self.result_panel.setMaximumHeight(120)
         self.history = QListWidget()
+        self.confirmation_panel = QWidget()
+        confirmation_layout = QVBoxLayout(self.confirmation_panel)
+        self.confirmation_label = QLabel()
+        self.confirm_button = QPushButton("Confirm")
+        self.cancel_confirmation_button = QPushButton("Cancel")
+        self.confirm_button.clicked.connect(self._confirm_creation)
+        self.cancel_confirmation_button.clicked.connect(lambda: self._cancel_confirmation("Folder creation cancelled."))
+        for widget in (self.confirmation_label, self.confirm_button, self.cancel_confirmation_button): confirmation_layout.addWidget(widget)
+        self.confirmation_panel.hide()
+        self.project_button = QPushButton("Approve project folder")
+        self.project_button.clicked.connect(self._select_project_root)
         for widget in (assistant, self.status, self.input): layout.addWidget(widget)
         layout.addLayout(buttons)
         if self.microphone_settings: layout.addWidget(self.microphone_settings)
         layout.addWidget(self.audio_level); layout.addWidget(self.speech); layout.addWidget(self.wake_toggle)
+        layout.addWidget(self.project_button); layout.addWidget(self.confirmation_panel)
         for title, widget in (("Recognized or typed command", self.command_panel), ("Execution result", self.result_panel), ("Command history", self.history)):
             layout.addWidget(QLabel(title)); layout.addWidget(widget)
         root.setLayout(layout); self.setCentralWidget(root)
         if self.wake_toggle.isChecked(): QTimer.singleShot(0, self._start_wake_listener)
 
     def execute_command(self):
+        response = self.input.text().strip().casefold().rstrip(".!?")
+        if response in {"confirm", "cancel"}:
+            if self._confirmation:
+                if response == "confirm": self._confirm_creation()
+                else: self._cancel_confirmation("Folder creation cancelled.")
+            else: self.result_panel.setText("There is no pending confirmation.")
+            return
+        if self._confirmation: self._cancel_confirmation("Previous confirmation cancelled.", resume=False)
         if self._tts_pending: return
         if getattr(self.tts, "is_busy", lambda: False)():
             self._cancelled = False
@@ -90,7 +115,10 @@ class MainWindow(QMainWindow):
             self.result_panel.setText("Please enter a command."); self._set_status(Status.FAILED); return
         self.command_panel.setText(command); self._set_status(Status.PROCESSING)
         self._cancelled = False; self._set_busy_controls()
-        thread, worker = QThread(self), CommandWorker(self.executor, command)
+        self._launch_command_worker(CommandWorker(self.executor, command))
+
+    def _launch_command_worker(self, worker):
+        thread = QThread(self)
         self._active_thread, self._active_worker = thread, worker
         worker.moveToThread(thread); thread.started.connect(worker.run); worker.finished.connect(self._complete)
         worker.finished.connect(thread.quit); worker.finished.connect(worker.deleteLater)
@@ -118,14 +146,15 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 self._voice_failure("The local speech model is required before voice commands can be used."); return
             self.transcriber.allow_download = True
-            self.result_panel.setText("The local speech model will download and load during transcription.")
+            self.status.setToolTip("The local speech model will download and load during transcription.")
         self._voice_cancel = Event(); self._cancelled = False; self._voice_phase = "recording"; self._voice_result = None
         self._voice_source = VoiceSource.WAKE_COMMAND if wake_initiated else VoiceSource.MANUAL
+        self._voice_confirmation_token = self._confirmation["token"] if self._confirmation else None
         self._wake_command_pending = bool(wake_initiated)
-        self._set_status(Status.COMMAND_LISTENING); self.result_panel.setText("Listening... Please remain quiet for calibration."); self._set_busy_controls()
+        self._set_status(Status.COMMAND_LISTENING); self._recording_progress("Listening... Please remain quiet for calibration."); self._set_busy_controls()
         thread, worker = QThread(self), RecordingWorker(self.recorder, device, self._voice_cancel)
         self._voice_thread, self._voice_worker = thread, worker
-        worker.moveToThread(thread); thread.started.connect(worker.run); worker.level_changed.connect(self._show_level); worker.status_changed.connect(self.result_panel.setText)
+        worker.moveToThread(thread); thread.started.connect(worker.run); worker.level_changed.connect(self._show_level); worker.status_changed.connect(self._recording_progress)
         relay = VoiceSignalRelay(self, worker)
         worker.finished.connect(relay.recording); worker.finished.connect(thread.quit); worker.finished.connect(worker.deleteLater)
         thread.finished.connect(relay.deleteLater)
@@ -133,7 +162,7 @@ class MainWindow(QMainWindow):
 
     def _start_transcription(self, recording):
         self._voice_phase = "transcribing"; self._voice_result = None
-        self._set_status(Status.PROCESSING); self.result_panel.setText("Transcribing locally... Loading the speech model if needed.")
+        self._set_status(Status.PROCESSING); self.status.setToolTip("Transcribing locally... Loading the speech model if needed.")
         thread, worker = QThread(self), TranscriptionWorker(self.transcriber, recording, self._voice_cancel, self._voice_source)
         self._voice_thread, self._voice_worker = thread, worker
         worker.moveToThread(thread); thread.started.connect(worker.run)
@@ -181,6 +210,7 @@ class MainWindow(QMainWindow):
             self._set_idle_controls()
 
     def _start_wake_listener(self):
+        if self._confirmation: return
         if self._close_pending or self._tts_pending: return
         if not self.wake_toggle.isChecked() or self._wake_thread is not None or self._voice_thread is not None or self._active_thread is not None: return
         if getattr(self.tts, "is_busy", lambda: False)():
@@ -204,7 +234,7 @@ class MainWindow(QMainWindow):
         worker.failed.connect(relay.failure); worker.finished.connect(thread.quit); worker.finished.connect(worker.deleteLater)
         thread.finished.connect(relay.deleteLater)
         thread.finished.connect(self._wake_finished); thread.finished.connect(thread.deleteLater); thread.start()
-        self._set_status(Status.WAKE_LISTENING); self.result_panel.setText(f'Wake-word listening for "{WAKE_PHRASE}".')
+        self._set_status(Status.WAKE_LISTENING)
         self._set_idle_controls()
 
     def _stop_wake_listener(self):
@@ -220,13 +250,12 @@ class MainWindow(QMainWindow):
         self._wake_detected_pending = True
         self._set_busy_controls()
         self._set_status(Status.WAKE_DETECTED)
-        self.result_panel.setText("Wake phrase detected.")
         logger.info("Wake phrase detected; listener paused")
         try: self.tts.speak("Yes, how can I help you?")
         except Exception: logger.exception("Wake acknowledgement speech failed")
 
     def _wake_failure(self, message):
-        self.result_panel.setText(message); self._set_status(Status.FAILED)
+        self._set_status(Status.FAILED); self.status.setToolTip(message)
         if self.microphone_settings: self.microphone_settings.refresh()
 
     def _wake_finished(self):
@@ -295,6 +324,12 @@ class MainWindow(QMainWindow):
         self._voice_phase = None; self.audio_level.setValue(0)
         if result is None or not result.success:
             self._voice_failure(result.message if result else "Transcription failed safely."); return
+        if self._voice_confirmation_token is not None:
+            token, self._voice_confirmation_token = self._voice_confirmation_token, None
+            if not self._confirmation or self._confirmation["token"] != token:
+                self._voice_failure("That confirmation is no longer active."); return
+            if result.text.strip().casefold().rstrip(".!?") in {"confirm", "cancel"}:
+                self.input.setText(result.text); self.execute_command(); return
         self.input.setText(result.text); self.command_panel.setText(result.text)
         command, error = self.voice_controller.approved_command(result)
         if error:
@@ -304,8 +339,22 @@ class MainWindow(QMainWindow):
     def _complete(self, result):
         try:
             if self._cancelled: return
+            if result.confirmation:
+                self._confirmation = result.confirmation
+                self.confirmation_label.setText(f"Create folder: {result.confirmation['folder_name']}\nParent: {result.confirmation['parent']}")
+                self.confirmation_panel.show()
+                self.input.clear()
+                self._confirmation_timer.start(round(result.confirmation["timeout"] * 1000))
+                self.result_panel.setText("Review the exact location, then Confirm or Cancel. You can also use Microphone to say Confirm or Cancel.")
+                self._set_status(Status.AWAITING_CONFIRMATION)
+                return
             if not result.store_history:
-                self._set_status(result.status); return
+                self.result_panel.setText(result.result_message); self._set_status(result.status)
+                self.input.clear()
+                if result.selected_tool is not None:
+                    # Speak a short summary, not full directory listings.
+                    self.tts.speak("File operation completed." if result.status == Status.COMPLETED else result.result_message)
+                return
             self.result_panel.setText(result.result_message); self._set_status(result.status)
             self.history.insertItem(0, f"{result.status.value}: {result.original_command} — {result.result_message}"); self.input.clear()
             try: self.repository.add(result)
@@ -317,6 +366,7 @@ class MainWindow(QMainWindow):
             if self._active_thread is None: self._set_idle_controls()
 
     def stop(self):
+        self._cancel_confirmation("Folder creation cancelled.", resume=False)
         self._transition_generation += 1
         self._tts_pending = False
         self._pending_action = None
@@ -324,11 +374,11 @@ class MainWindow(QMainWindow):
         self._cancelled = True
         if self.wake_toggle.isChecked(): self.wake_toggle.setChecked(False)
         if self._wake_thread is not None:
-            self._stop_wake_listener(); self.result_panel.setText("Wake-word listening cancelled.")
+            self._stop_wake_listener()
         elif self._voice_thread is not None:
             self._voice_cancel.set(); self._voice_thread.requestInterruption(); self.result_panel.setText("Voice operation cancelled.")
         elif self._active_thread is not None:
-            if isinstance(self._active_worker, CommandWorker): self._active_worker.cancel_event.set()
+            if isinstance(self._active_worker, (CommandWorker, ProjectRootWorker)): self._active_worker.cancel_event.set()
             self._active_thread.requestInterruption(); self.result_panel.setText("Cancellation requested. The current safe operation will stop where possible.")
         else: self.result_panel.setText("No cancellable action is currently running.")
         self._set_status(Status.IDLE); self.audio_level.setValue(0)
@@ -337,24 +387,62 @@ class MainWindow(QMainWindow):
         self._wake_command_pending = False
         self._active_thread = self._active_worker = None; self._set_idle_controls()
         if self._close_pending: QTimer.singleShot(0, self.close)
-        elif self.wake_toggle.isChecked(): self._after_tts(self._start_wake_listener)
+        elif self.wake_toggle.isChecked() and not self._confirmation: self._after_tts(self._start_wake_listener)
 
     def _voice_failure(self, message):
         self._wake_command_pending = False
         self.result_panel.setText(message); self._set_status(Status.FAILED); self._set_idle_controls()
-        if self.wake_toggle.isChecked(): QTimer.singleShot(round(self.settings.wake_word_cooldown * 1000), self._start_wake_listener)
+        if self.wake_toggle.isChecked() and not self._confirmation: QTimer.singleShot(round(self.settings.wake_word_cooldown * 1000), self._start_wake_listener)
 
     def _set_busy_controls(self):
+        self.project_button.setEnabled(False); self.confirm_button.setEnabled(False)
         self.execute_button.setEnabled(False); self.microphone_button.setEnabled(False); self.input.setEnabled(False); self.stop_button.setEnabled(True)
 
     def _set_idle_controls(self):
         busy = self._active_thread is not None or self._voice_thread is not None or self._tts_pending
         self.execute_button.setEnabled(not busy); self.microphone_button.setEnabled(not busy and self.device_service is not None)
         self.input.setEnabled(not busy); self.stop_button.setEnabled(busy or self._wake_thread is not None)
+        self.project_button.setEnabled(not busy and self._wake_thread is None)
+        self.confirm_button.setEnabled(not busy and self._confirmation is not None)
+        if self._confirmation: self.stop_button.setEnabled(True)
+
+    def _cancel_confirmation(self, message="", resume=True):
+        pending, self._confirmation = self._confirmation, None
+        self._confirmation_timer.stop(); self.confirmation_panel.hide()
+        from app.agent.executor import CommandExecutor
+        if isinstance(self.executor, CommandExecutor): self.executor.confirmations.cancel()
+        if pending:
+            self.result_panel.setText(message); self._set_idle_controls()
+            if resume and self.wake_toggle.isChecked(): self._after_tts(self._start_wake_listener)
+
+    def _confirm_creation(self):
+        if not self._confirmation or self._active_thread or self._voice_thread: return
+        token = self._confirmation["token"]
+        self._confirmation = None
+        self._confirmation_timer.stop(); self.confirmation_panel.hide()
+        self._cancelled = False
+        self._set_busy_controls(); self._set_status(Status.PROCESSING)
+        self._launch_command_worker(CommandWorker(self.executor, "create_folder", confirmation_token=token))
+
+    def _select_project_root(self):
+        if self._active_thread or self._voice_thread or self._wake_thread: return
+        from app.agent.executor import CommandExecutor
+        if not isinstance(self.executor, CommandExecutor) or not self.executor.registry.filesystem: return
+        self._cancel_confirmation(resume=False)
+        path = QFileDialog.getExistingDirectory(self, "Select a local project folder to approve")
+        if not path: return
+        self._set_busy_controls(); self._cancelled = False
+        self._launch_command_worker(ProjectRootWorker(self.executor.registry.filesystem.roots, path))
 
     def _show_level(self, level): self.audio_level.setValue(max(0, min(100, round(level * 500))))
     def _toggle_speech(self, enabled): self.tts.enabled = enabled
-    def _set_status(self, status): self.status.setText(f"Status: {status.value}")
+    def _set_status(self, status):
+        self.status.setText(f"Status: {status.value}")
+        self.status.setToolTip("")
+
+    @Slot(str)
+    def _recording_progress(self, message):
+        self.status.setToolTip(message)
 
     def _test_microphone(self, device):
         if self._wake_thread is not None or self._voice_thread is not None or self._tts_pending:
@@ -373,10 +461,11 @@ class MainWindow(QMainWindow):
         except Exception: logger.exception("Could not load command history")
 
     def closeEvent(self, event):
+        self._cancel_confirmation(resume=False)
         self._transition_generation += 1
         self._tts_pending = False
         self._cancelled = True; self._voice_cancel.set()
-        if isinstance(self._active_worker, CommandWorker): self._active_worker.cancel_event.set()
+        if isinstance(self._active_worker, (CommandWorker, ProjectRootWorker)): self._active_worker.cancel_event.set()
         self.wake_toggle.blockSignals(True); self.wake_toggle.setChecked(False); self.wake_toggle.blockSignals(False)
         self._wake_cancel.set()
         active = [thread for thread in (self._wake_thread, self._voice_thread, self._active_thread) if thread is not None]
