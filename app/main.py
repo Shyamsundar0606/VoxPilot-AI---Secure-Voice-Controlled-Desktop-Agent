@@ -23,22 +23,24 @@ from app.filesystem.roots import ApprovedRoots
 from app.filesystem.service import FilesystemService
 from app.security.confirmations import Confirmations
 from app.tools.registry import ToolRegistry
+from app.documents.service import DocumentService
+from app.documents.limits import PdfLimits
 
 
 def main() -> int:
     load_project_env()
-    settings = Settings()
+    settings = replace(Settings(), save_audio=False)
     logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     application = QApplication(sys.argv)
     planner = IntentPlanner(OllamaClient(settings.ollama_base_url, settings.intent_model, timeout=settings.intent_timeout), settings.intent_min_confidence)
     filesystem = FilesystemService(ApprovedRoots(settings.approved_roots_path), timeout=settings.filesystem_timeout,
         max_depth=settings.filesystem_max_depth, max_results=settings.filesystem_max_results)
     executor = CommandExecutor(planner=planner, registry=ToolRegistry(filesystem=filesystem),
-        confirmations=Confirmations(settings.confirmation_timeout))
+        confirmations=Confirmations(settings.confirmation_timeout),
+        documents=DocumentService(filesystem.roots, OllamaClient(settings.ollama_base_url, settings.primary_model), PdfLimits.from_settings(settings)))
     device_service = AudioDeviceService(store=DeviceSelectionStore(settings.voice_settings_path), target_sample_rate=settings.sample_rate)
     transcriber = SpeechTranscriber(settings)
-    wake_settings = replace(settings, save_audio=False, max_recording_seconds=settings.wake_window_seconds, initial_wait_seconds=settings.wake_window_seconds, silence_seconds=0.5, calibration_seconds=0.3)
-    wake_controller = WakeWordController(AudioRecorder(wake_settings, device_service=device_service), transcriber)
+    wake_controller = WakeWordController(settings, device_service)
     window = MainWindow(
         settings, executor, HistoryRepository(settings.database_path), TextToSpeech(settings.speech_enabled),
         device_service=device_service, recorder=AudioRecorder(settings, device_service=device_service), transcriber=transcriber,

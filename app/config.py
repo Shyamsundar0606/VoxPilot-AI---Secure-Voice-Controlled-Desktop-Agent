@@ -11,6 +11,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WAKE_PHRASE = "Hello"
 
 
+def configured_wake_phrase():
+    return os.getenv("VOXPILOT_WAKE_PHRASE", WAKE_PHRASE).strip()
+
+
 def load_project_env(path: Path | None = None) -> None:
     """Load the project environment while preserving process overrides."""
     from dotenv import load_dotenv
@@ -43,6 +47,10 @@ def _transcription_timeout() -> float:
 
 @dataclass(frozen=True)
 class Settings:
+    wake_engine: str = field(default_factory=lambda: os.getenv("VOXPILOT_WAKE_ENGINE", "vosk").strip().lower())
+    wake_phrase: str = field(default_factory=configured_wake_phrase)
+    vosk_model_path: Path = field(default_factory=lambda: Path(os.getenv("VOSK_MODEL_PATH", "models/vosk-model-small-en-us-0.15")))
+    vosk_sample_rate: int = field(default_factory=lambda: int(os.getenv("VOSK_SAMPLE_RATE", "16000")))
     app_name: str = "VoxPilot AI"
     assistant_name: str = "Shyam"
     speech_enabled: bool = field(default_factory=lambda: _bool_env("VOXPILOT_SPEECH_ENABLED", True))
@@ -81,3 +89,15 @@ class Settings:
     filesystem_max_results: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_FILESYSTEM_MAX_RESULTS", "100")))
     confirmation_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_CONFIRMATION_TIMEOUT", "30")))
     approved_roots_path: Path = field(default_factory=lambda: user_data_path("VoxPilot AI", ensure_exists=True) / "approved-roots.json")
+    pdf_max_size_mb: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_MAX_SIZE_MB", "20")))
+    pdf_max_pages: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_MAX_PAGES", "100")))
+    pdf_max_characters: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_MAX_CHARACTERS", "200000")))
+    pdf_min_characters: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_MIN_CHARACTERS", "20")))
+    pdf_page_characters: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_PAGE_CHARACTERS", "20000")))
+    pdf_extraction_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_PDF_EXTRACTION_TIMEOUT", "60")))
+    pdf_summary_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_PDF_SUMMARY_TIMEOUT", "180")))
+    pdf_max_chunks: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_MAX_CHUNKS", "20")))
+    pdf_chunk_characters: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_CHUNK_CHARACTERS", "10000")))
+    pdf_spoken_characters: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_SPOKEN_SUMMARY_MAX_CHARS", "300")))
+    pdf_selection_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_PDF_SELECTION_TIMEOUT", "60")))
+    pdf_memory_mb: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PDF_MEMORY_MB", "512")))

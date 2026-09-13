@@ -71,3 +71,25 @@ def test_native_timeout_terminates_speech_before_clearing_busy(monkeypatch):
     process.terminate.assert_called_once()
     assert process.join.call_count == 2
     tts.shutdown()
+
+
+def test_stop_during_native_start_cancels_speech_and_discards_queue(monkeypatch):
+    from unittest.mock import Mock
+    import app.voice.tts as module
+    context = Mock()
+    context.Pipe.return_value = (Mock(), Mock())
+    process = context.Process.return_value
+    entered, release = Event(), Event()
+    process.start.side_effect = lambda: (entered.set(), release.wait(2))
+    process.is_alive.return_value = False
+    monkeypatch.setattr(module, "get_context", lambda _: context)
+    tts = TextToSpeech()
+    try:
+        tts.speak("short synthetic overview")
+        assert entered.wait(1)
+        tts.speak("must be discarded")
+        tts.stop(); release.set(); tts._queue.join()
+        process.terminate.assert_called_once()
+        assert context.Process.call_count == 1 and not tts.is_busy()
+    finally:
+        release.set(); tts.shutdown()

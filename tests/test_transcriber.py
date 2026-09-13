@@ -116,7 +116,7 @@ def test_native_proxy_reuses_process_and_stops_it(monkeypatch):
     parent.close.assert_called_once()
 
 
-def test_shared_cpu_model_is_used_by_wake_and_command_paths(caplog):
+def test_cpu_command_model_is_reused_and_not_loaded_for_vosk_wake(caplog):
     caplog.set_level("INFO")
     model = Model(text="Hello"); calls = []
     speech = SpeechTranscriber(
@@ -124,10 +124,11 @@ def test_shared_cpu_model_is_used_by_wake_and_command_paths(caplog):
         model_factory=lambda: calls.append(1) or model,
         allow_download=True,
     )
-    from app.voice.wake_word import WakeWordController
-
-    recorder = SimpleNamespace(record=lambda *_args: recording())
-    assert WakeWordController(recorder, speech).listen_once(None, Event()).detected
+    from tests.test_wake_word import controller_result
+    wake, cancel, _, _ = controller_result()
+    assert wake.listen_once(None, cancel).detected
+    assert calls == []
+    assert speech.transcribe(recording()).success
     assert speech.transcribe(recording()).success
     assert len(calls) == 1
     assert "device=cpu compute_type=int8" in caplog.text

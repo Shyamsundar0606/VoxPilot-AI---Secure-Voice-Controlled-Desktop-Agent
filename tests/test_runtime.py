@@ -199,7 +199,6 @@ def test_microphone_test_does_not_overlap_listener():
 @pytest.mark.parametrize("command", ["Open Google.", "Delete my files"])
 def test_real_qt_wake_cycle_consumes_activation_and_captures_once(command):
     import numpy as np
-    from app.voice.wake_word import WakeWordController
     from app.voice.voice_controller import VoiceCommandController
     from app.agent.router import CommandRouter
     from app.models import WakeWordResult
@@ -213,11 +212,7 @@ def test_real_qt_wake_cycle_consumes_activation_and_captures_once(command):
         def listen_once(self, device, cancel, *callbacks):
             wake_calls.append(1)
             if len(wake_calls) == 1:
-                recorder = Mock()
-                recorder.record.return_value = RecordingResult(success=True, audio=np.ones(100), speech_duration=1)
-                transcriber = Mock()
-                transcriber.transcribe.return_value = TranscriptionResult(success=True, text="HELLO!", model_used="fake")
-                return WakeWordController(recorder, transcriber).listen_once(device, cancel)
+                return WakeWordResult(detected=True)
             resumed.set()
             cancel.wait(2)
             return WakeWordResult(cancelled=True)

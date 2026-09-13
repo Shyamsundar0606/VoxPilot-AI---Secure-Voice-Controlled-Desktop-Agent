@@ -99,7 +99,7 @@ def test_microphone_test_and_recording_share_resolver_and_stream_options():
 def test_stop_and_raw_audio_privacy(tmp_path):
     stop = Event(); stop.set()
     stopped = recorder(StreamBackend()).record(7, stop)
-    saved = recorder(StreamBackend(([0.5] * 20, [0.5] * 20, [0.5] * 20, [0.0] * 20),), recordings_path=tmp_path).record(7, Event())
+    saved = recorder(StreamBackend(([0.5] * 20, [0.5] * 20, [0.5] * 20, [0.0] * 20),), recordings_path=tmp_path, save_audio=True).record(7, Event())
     assert stopped.cancelled and not stopped.success
     assert saved.success and list(tmp_path.iterdir()) == []
 

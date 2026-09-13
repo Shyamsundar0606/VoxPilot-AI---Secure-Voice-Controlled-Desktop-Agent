@@ -4,4 +4,6 @@ ALLOWED_URLS = {"chatgpt": "https://chatgpt.com", "google": "https://www.google.
 
 from app.security.filesystem_policy import FILESYSTEM_TOOLS
 ALLOWED_TOOLS = ALLOWED_TOOLS | FILESYSTEM_TOOLS
+from app.documents.policy import DOCUMENT_TOOLS
+ALLOWED_TOOLS = ALLOWED_TOOLS | DOCUMENT_TOOLS
 CONFIRMATION_REQUIRED_TOOLS = frozenset({"create_folder"})

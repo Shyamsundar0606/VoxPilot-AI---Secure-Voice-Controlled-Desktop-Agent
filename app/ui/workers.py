@@ -56,15 +56,45 @@ class VoiceSignalRelay(QObject):
     def failure(self, message):
         if self.current() and not self.window._wake_cancel.is_set(): self.window._wake_failure(message)
 
+    @Slot(str)
+    def setup_failure(self, message):
+        if self.current() and not self.window._wake_cancel.is_set(): self.window._wake_setup_failure(message)
+
+
+class CommandSignalRelay(QObject):
+    """GUI-thread slots discard late results from replaced or cancelled workers."""
+    def __init__(self, window, worker):
+        super().__init__(window)
+        self.window, self.worker = window, worker
+
+    def current(self):
+        return self.worker is self.window._active_worker and not self.window._cancelled and not self.window._close_pending
+
+    @Slot(object)
+    def complete(self, result):
+        if self.current(): self.window._complete(result)
+
+    @Slot(str, str)
+    def progress(self, state, detail):
+        if self.current():
+            self.window._set_status(Status(state))
+            self.window.status.setToolTip(detail)
+            self.window.document_progress.setText(detail)
+            self.window.document_progress.show()
+
 
 class CommandWorker(QObject):
     finished = Signal(object)
+    progress = Signal(str, str)
 
-    def __init__(self, executor, command: str, confirmation_token=None):
+    def __init__(self, executor, command: str, confirmation_token=None, document_selection=None):
         super().__init__()
         self.executor, self.command = executor, command
         self.cancel_event = Event()
         self.confirmation_token = confirmation_token
+        self.document_selection = document_selection
+        from app.documents.routing import document_request
+        self.is_document_task = document_selection is not None or document_request(command) is not None
 
     @Slot()
     def run(self):
@@ -74,8 +104,12 @@ class CommandWorker(QObject):
                 result = self._cancelled_result()
             else:
                 if isinstance(self.executor, CommandExecutor):
-                    result = (self.executor.confirm(self.confirmation_token, self.cancel_event) if self.confirmation_token
-                              else self.executor.execute(self.command, self.cancel_event))
+                    if self.document_selection:
+                        result = self.executor.documents.execute(cancel_event=self.cancel_event,
+                            progress=self.progress.emit, selection=self.document_selection)
+                    else:
+                        result = (self.executor.confirm(self.confirmation_token, self.cancel_event) if self.confirmation_token
+                                  else self.executor.execute(self.command, self.cancel_event, self.progress.emit))
                 else:
                     result = self.executor.execute(self.command)
         except Exception as exc:
@@ -175,6 +209,7 @@ class WakeWordWorker(QObject):
     level_changed = Signal(float)
     detected = Signal()
     failed = Signal(str)
+    setup_failed = Signal(str)
     finished = Signal()
 
     def __init__(self, controller, device, cancel_event):
@@ -187,11 +222,16 @@ class WakeWordWorker(QObject):
                 self.state_changed.emit("Wake-word listening")
                 result = self.controller.listen_once(self.device, self.cancel_event, self.level_changed.emit, self.state_changed.emit)
                 if result.cancelled: break
+                if self.cancel_event.is_set(): break
                 if result.error_code:
-                    self.failed.emit(result.message); break
+                    if result.error_code in {"missing_model", "vosk_unavailable", "invalid_model", "invalid_configuration", "decoder_failed", "decoder_timeout"}:
+                        self.setup_failed.emit(result.message)
+                    else: self.failed.emit(result.message)
+                    break
                 if result.detected:
                     from app.config import WAKE_PHRASE
-                    self.activation.emit(WAKE_PHRASE)
+                    phrase = getattr(self.controller, "phrase", WAKE_PHRASE)
+                    self.activation.emit(phrase if isinstance(phrase, str) else WAKE_PHRASE)
                     self.detected.emit(); break
         except Exception:
             logger.exception("Wake-word listener failed")

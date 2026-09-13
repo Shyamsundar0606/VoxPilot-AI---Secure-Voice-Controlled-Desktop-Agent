@@ -21,6 +21,10 @@ class CommandRouter:
     def route(self, command: str) -> RoutedCommand:
         normalized = normalize_command(command)
         base = {"original_command": command, "normalized_command": normalized}
+        from app.documents.routing import document_request
+        document_tool = document_request(command)
+        if document_tool is not None:
+            return RoutedCommand(**base, supported=True, tool_request=document_tool)
         from app.agent.file_routing import file_request
         file_tool = file_request(command)
         if file_tool is not None:

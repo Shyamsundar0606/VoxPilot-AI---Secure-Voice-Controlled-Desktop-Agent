@@ -29,11 +29,12 @@ class TextToSpeech:
         self.engine_factory = engine_factory or self._default_engine
         self._native = engine_factory is None
         self._closed = Event()
+        self._speech_cancel = Event()
         self._state_lock = Lock()
         self._process = None
         self.last_error: str | None = None
         self.timeout = timeout
-        self._queue: Queue[str] = Queue()
+        self._queue = Queue()
         self._busy = Event()
         self._worker = Thread(target=self._run_queue, name="voxpilot-tts", daemon=True)
         self._worker.start()
@@ -48,17 +49,18 @@ class TextToSpeech:
             if not self.enabled or self._closed.is_set():
                 return False
             self._busy.set()
-            self._queue.put(text)
+            self._queue.put((text, self._speech_cancel))
         return True
 
     def _run_queue(self) -> None:
         while True:
-            text = self._queue.get()
+            item = self._queue.get()
             try:
-                if text is None: return
-                if self._closed.is_set(): continue
+                if item is None: return
+                text, cancel = item
+                if self._closed.is_set() or cancel.is_set(): continue
                 if self._native:
-                    self._speak_process(text)
+                    self._speak_process(text, cancel)
                     continue
                 speech = Thread(target=self._speak_safely, args=(text,), name="voxpilot-tts-call", daemon=True)
                 speech.start()
@@ -71,7 +73,7 @@ class TextToSpeech:
                     if self._queue.empty(): self._busy.clear()
                 self._queue.task_done()
 
-    def _speak_process(self, text):
+    def _speak_process(self, text, cancel=None):
         context = get_context("spawn")
         receiver, sender = context.Pipe(duplex=False)
         process = context.Process(target=_native_speech, args=(text, sender), daemon=True)
@@ -79,6 +81,7 @@ class TextToSpeech:
             process.start()
             self._process = process
             sender.close()
+            if cancel is not None and cancel.is_set(): process.terminate()
             process.join(self.timeout)
             if process.is_alive():
                 self.last_error = "TimeoutError"
@@ -103,6 +106,27 @@ class TextToSpeech:
         if process is not None and process.is_alive(): process.terminate()
         self._worker.join(self.timeout + 1)
         self._busy.clear()
+
+    def stop(self):
+        """Discard queued speech and interrupt the native speech process."""
+        from queue import Empty
+        with self._state_lock:
+            self._speech_cancel.set()
+            self._speech_cancel = Event()
+            while True:
+                try:
+                    item = self._queue.get_nowait()
+                    self._queue.task_done()
+                    if item is None:
+                        self._queue.put(None)
+                        break
+                except Empty:
+                    break
+            process = self._process
+            if process is not None:
+                try:
+                    if process.is_alive(): process.terminate()
+                except (OSError, ValueError): pass
 
     def is_busy(self) -> bool:
         return self._busy.is_set()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import wave
 from queue import Empty, Queue
 from threading import Event, Lock
 from time import monotonic
@@ -157,7 +156,6 @@ class AudioRecorder:
             audio = self.resample(trimmed, source_rate, self.settings.sample_rate); trimmed.fill(0)
         else:
             audio = trimmed
-        if getattr(self.settings, "save_audio", False): self._save_development_audio(audio)
         return RecordingResult(success=True, audio=audio, sample_rate=self.settings.sample_rate, duration=trimmed_duration, original_duration=original_duration, speech_duration=speech_duration, message="Recording completed.")
 
     @staticmethod
@@ -183,11 +181,3 @@ class AudioRecorder:
     def _safe_error(exc: Exception) -> str:
         detail = " ".join(str(exc).split())[:240]
         return f"The selected microphone could not be opened: {detail or type(exc).__name__}."
-
-    def _save_development_audio(self, audio: np.ndarray) -> None:
-        directory = self.settings.recordings_path; directory.mkdir(parents=True, exist_ok=True)
-        target = directory / f"recording-{int(monotonic() * 1000)}.wav"
-        pcm = np.clip(audio, -1.0, 1.0)
-        with wave.open(str(target), "wb") as output:
-            output.setnchannels(1); output.setsampwidth(2); output.setframerate(self.settings.sample_rate)
-            output.writeframes((pcm * 32767).astype(np.int16).tobytes())

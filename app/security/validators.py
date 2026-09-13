@@ -26,6 +26,10 @@ def validate_search_query(query: str) -> str:
 def validate_tool_request(request: ToolRequest) -> None:
     if request.tool_name not in ALLOWED_TOOLS:
         raise PolicyViolation("The requested tool is not approved.")
+    from app.documents.policy import DOCUMENT_TOOLS, PdfArgs
+    if request.tool_name in DOCUMENT_TOOLS:
+        PdfArgs.model_validate(request.arguments)
+        return
     from app.security.filesystem_policy import FILESYSTEM_TOOLS, validate_file_arguments
     if request.tool_name in FILESYSTEM_TOOLS:
         validate_file_arguments(request.tool_name, request.arguments)

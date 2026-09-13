@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+from app.documents.errors import DocumentFailureCode
 
 
 class Status(str, Enum):
@@ -17,6 +18,11 @@ class Status(str, Enum):
     WAKE_DETECTED = "Wake detected"
     COMMAND_LISTENING = "Command listening"
     AWAITING_CONFIRMATION = "Awaiting confirmation"
+    AWAITING_SELECTION = "Awaiting PDF selection"
+    LOCATING_PDF = "Locating PDF"
+    EXTRACTING_PDF = "Extracting PDF"
+    SUMMARIZING = "Summarizing"
+    CANCELLED = "Cancelled"
 
 
 class CommandRequest(BaseModel):
@@ -44,6 +50,9 @@ class ToolResult(BaseModel):
 
 
 class ExecutionResult(BaseModel):
+    document_failure_code: DocumentFailureCode | None = None
+    document_selection: dict[str, Any] | None = None
+    spoken_message: str | None = None
     confirmation: dict[str, Any] | None = None
     store_history: bool = True
     original_command: str

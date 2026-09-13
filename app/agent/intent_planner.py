@@ -65,6 +65,12 @@ class IntentPlanner:
     @staticmethod
     def _grounded(text, request):
         """Require a recognizable target; model confidence alone cannot authorize it."""
+        from app.documents.policy import DOCUMENT_TOOLS
+        if request.tool_name in DOCUMENT_TOOLS:
+            args = request.arguments
+            return (re.search(r"\b(summarize|summary|main points|locate|find)\b", text, re.I) is not None
+                    and args["query"].casefold() in text.casefold()
+                    and (args["root"] == "all" or re.search(r"(?<!\w)" + re.escape(args["root"]) + r"(?!\w)", text, re.I) is not None))
         if request.tool_name in FILESYSTEM_TOOLS:
             args = request.arguments
             if re.search(r"(?<!\w)" + re.escape(args["root"]) + r"(?!\w)", text, re.I) is None: return False

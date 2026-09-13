@@ -42,6 +42,9 @@ find_file: {"root": "documents", "query": "literal name fragment", "max_results"
 create_folder: {"root": "documents", "relative_parent": "", "folder_name": "literal new name"}.
 Folder creation ALWAYS requires_confirmation true; it only proposes a write for the user to confirm.
 Copy all relative names exactly from the user. Never infer a missing root or file name.
+summarize_pdf/locate_pdf: {"root": "documents", "query": "resume.pdf", "summary_style": "concise"}.
+PDF roots: desktop, documents, downloads, an explicitly named project_N, or all when unspecified.
+Copy the filename or safe name fragment literally from the request; no paths. Styles: concise, detailed, bullet_points.
 """
 
 
@@ -93,15 +96,31 @@ class OllamaClient:
         payload = {"model": self.model, "stream": False, "format": IntentOutput.model_json_schema(),
                    "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": command}],
                    "options": {"temperature": 0, "num_predict": 256}}
+        return self._request(payload, cancel, self.timeout)
+
+    def summarize_text(self, system, data, cancel_event=None, timeout=180):
+        """Separate text-only payload with the same local-model and transport checks."""
+        if not 0 < timeout <= 600 or len(data) > 80000:
+            raise OllamaError("Invalid document request limits.")
+        payload = {"model": self.model, "stream": False,
+                   "messages": [{"role": "system", "content": system}, {"role": "user", "content": data}],
+                   "options": {"temperature": 0, "num_predict": 1200, "num_ctx": 8192}}
+        try:
+            return self._request(payload, cancel_event or Event(), timeout)
+        finally:
+            payload["messages"].clear()
+
+    def _request(self, payload, cancel, timeout):
+        if cancel.is_set(): raise OllamaError("Local model request cancelled.")
         context = get_context("spawn")
         receiver, sender = context.Pipe(duplex=False)
-        process = context.Process(target=_http_request, args=(self.endpoint, payload, self.timeout, sender), daemon=True)
+        process = context.Process(target=_http_request, args=(self.endpoint, payload, timeout, sender), daemon=True)
         started = monotonic()
         try:
             process.start(); sender.close()
             while True:
                 if cancel.is_set(): raise OllamaError("Intent request cancelled.")
-                if monotonic() - started >= self.timeout:
+                if monotonic() - started >= timeout:
                     raise OllamaError("Local Ollama request timed out. Please retry or use an exact command.")
                 if receiver.poll(0.02):
                     success, result = receiver.recv()

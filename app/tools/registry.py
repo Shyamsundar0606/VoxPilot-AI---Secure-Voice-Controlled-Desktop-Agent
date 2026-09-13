@@ -9,7 +9,7 @@ from app.tools.system_tools import SystemTools
 from app.tools.web_tools import WebTools
 
 
-HELP_MESSAGE = "I can tell the time or date, check battery or storage, search Google, and open approved applications. I can open or list approved folders, find files by name, show file information, and propose creating a folder for your confirmation."
+HELP_MESSAGE = "I can tell the time or date, check battery or storage, search Google, and open approved applications. I can open or list approved folders, find files by name, show file information, and propose creating a folder for your confirmation. I can locate and summarize text-based PDFs in Desktop, Documents, Downloads and approved project folders."
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +26,9 @@ class ToolRegistry:
         except ValueError:
             return ToolResult(success=False, message="The requested tool or arguments are not approved.", error="Policy violation")
         from app.security.filesystem_policy import FILESYSTEM_TOOLS
+        from app.documents.policy import DOCUMENT_TOOLS
+        if request.tool_name in DOCUMENT_TOOLS:
+            return ToolResult(success=False, message="Use the configured document execution pipeline.")
         if request.tool_name in FILESYSTEM_TOOLS:
             if self.filesystem is None: return ToolResult(success=False, message="File operations are not configured.")
             # create_folder always prepares a proposal here, never writes.

@@ -16,4 +16,9 @@ build/
 dist/
 *.egg-info/
 recordings/
+models/
 *.wav
+vosk-model-*/
+vosk-model-*.zip
+models/vosk-model-*/
+

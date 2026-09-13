@@ -14,16 +14,21 @@ from app.models import ToolRequest
 
 
 class CommandExecutor:
-    def __init__(self, router=None, registry=None, planner=None, confirmations=None):
+    def __init__(self, router=None, registry=None, planner=None, confirmations=None, documents=None):
         self.router = router or CommandRouter()
         self.registry = registry or ToolRegistry()
         self.planner = planner
         self.confirmations = confirmations or Confirmations()
+        self.documents = documents
 
-    def execute(self, command: str, cancel_event=None) -> ExecutionResult:
+    def execute(self, command: str, cancel_event=None, progress=lambda *_: None) -> ExecutionResult:
         started = perf_counter()
         cancel = cancel_event or Event()
         self.confirmations.cancel()  # A new request invalidates every prior proposal.
+        if self.documents: self.documents.cancel_selection()
+        if command.strip().casefold().rstrip(".!?") in {"cancel pdf summarization", "cancel document task"}:
+            return ExecutionResult(original_command="", normalized_command="", selected_tool=None,
+                                   status=Status.CANCELLED, result_message="Document task cancelled.", store_history=False)
         if is_wake_phrase(command):
             return ExecutionResult(original_command="", normalized_command="", selected_tool=None,
                                    status=Status.IDLE, result_message="Wake phrase consumed.", store_history=False)
@@ -48,6 +53,12 @@ class CommandExecutor:
             validate_tool_request(routed.tool_request)
         except ValueError:
             return self._result(routed, None, False, "The requested action is not approved.", None, started)
+        from app.documents.policy import DOCUMENT_TOOLS
+        if routed.tool_request.tool_name in DOCUMENT_TOOLS:
+            if self.documents:
+                return self.documents.execute(routed.tool_request, cancel, progress)
+            return ExecutionResult(original_command="[Local PDF request]", normalized_command="", selected_tool="summarize_pdf",
+                                   status=Status.FAILED, result_message="PDF processing is not configured.", store_history=False)
         if routed.tool_request.tool_name in FILESYSTEM_TOOLS:
             tool_result = self.registry.execute(routed.tool_request, cancel)
             result = self._result(routed, routed.tool_request.tool_name, tool_result.success, tool_result.message, tool_result.error, started)
