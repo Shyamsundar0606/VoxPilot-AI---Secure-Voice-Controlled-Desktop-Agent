@@ -198,3 +198,105 @@ See `MILESTONE6_VERIFICATION.md` for test evidence, manual acceptance steps and 
 ## Roadmap
 
 Future milestones may add a dedicated custom wake model and additional carefully designed approval flows. Destructive actions remain unimplemented.
+
+## Milestone 7: approved project management
+
+Use **Approve projects folder**, then **Refresh projects**. Only explicitly approved `project_N` roots are scanned; Desktop, Documents, the current working directory and drive roots are not implicitly project roots. Existing filesystem containment, Unicode name validation, symlink/junction and sensitive-directory restrictions still apply. Discovery reads manifest names and metadata, not source contents. It skips virtual environments, dependency trees, build output and hidden folders.
+
+Supported commands include:
+
+- `List my projects` / `List projects in project_1`
+- `Open the CyberGuard project` / `Open project VoxPilot`
+- `Show project information for CyberGuard`
+- `Start the CyberGuard project` / `Run project VoxPilot`
+- `Show running projects`
+- `Stop the CyberGuard project`
+
+Deterministic routing runs first. Ollama can return only a tool name and literal project name (or a logical root for listing). It cannot supply executable paths, arguments, PIDs, environment variables or profiles. Ambiguous names produce numbered choices. Opening means opening the validated folder in Explorer; it does not run code.
+
+### Explicit launch profiles
+
+Pause wake mode, choose **Save launch profile**, and paste one JSON object. Validation runs in a worker before saving. Profiles are stored in `project-profiles.json` in the application's local data directory, alongside the existing approved-root configuration. Saving a profile does not start it. Use a stable unique `project_id`; saving the same identifier replaces that profile after validation. Start with one profile per discovered project directory. Refresh the project list after saving.
+
+These examples use generic installation locations; replace them with an existing local executable and the correct approved root/relative directory. No executable is searched on PATH or downloaded automatically.
+
+Python module (equivalent to the fixed `python -m app.main` launch):
+
+```json
+{
+  "project_id": "voxpilot",
+  "display_name": "VoxPilot",
+  "root": "project_1",
+  "directory": "VoxPilot",
+  "runner": "python_module",
+  "executable": "C:/Python312/python.exe",
+  "entry_point": "app.main",
+  "arguments": [],
+  "working_directory": "",
+  "environment_allowlist": ["SYSTEMROOT", "WINDIR", "TEMP", "TMP"],
+  "allow_duplicate": false
+}
+```
+
+For `python_script`, use a contained relative `.py` entry point such as `main.py`. A project-local `.venv/Scripts/python.exe` may be selected explicitly as the executable after link/reparse validation; this narrow executable rule does not allow discovery or file tools to browse virtual environments. Module entry points must exist in the project, and module launches use its root as the working directory. Fixed arguments are bounded simple values, without paths, traversal, control characters or shell syntax. No pip installation or environment activation runs.
+
+Fixed npm script:
+
+```json
+{
+  "project_id": "dashboard",
+  "display_name": "Dashboard",
+  "root": "project_1",
+  "directory": "Dashboard",
+  "runner": "npm_script",
+  "executable": "C:/Program Files/nodejs/node.exe",
+  "npm_cli": "C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js",
+  "entry_point": "dev",
+  "arguments": [],
+  "environment_allowlist": ["SYSTEMROOT", "WINDIR", "TEMP", "TMP"]
+}
+```
+
+`dev` must already be a script in `package.json`. Windows `npm.cmd` is not launched: validated `node.exe` runs the explicitly configured npm CLI belonging to that Node installation. The fixed invocation uses `--ignore-scripts run-script dev`, disabling automatic pre/post lifecycle hooks. It never adds npm options or installs dependencies. The selected manifest script is trusted project code and may itself have side effects; review it before approving the profile.
+
+Fixed Docker Compose file:
+
+```json
+{
+  "project_id": "localweb",
+  "display_name": "Local Web",
+  "root": "project_1",
+  "directory": "LocalWeb",
+  "runner": "docker_compose",
+  "executable": "C:/Program Files/Docker/Docker/resources/bin/docker.exe",
+  "entry_point": "compose.yaml",
+  "arguments": [],
+  "environment_allowlist": ["SYSTEMROOT", "WINDIR", "TEMP", "TMP"]
+}
+```
+
+The Compose file currently requires **JSON syntax (a YAML subset)**. Its only top-level field is `services`; each named service allows only a digest-pinned `image`, optional Boolean `init`, and optional Boolean `read_only`. Use an actual locally available image digest, for example:
+
+```json
+{"services":{"web":{"image":"nginx@sha256:REPLACE_WITH_64_HEXADECIMAL_DIGEST_CHARACTERS","read_only":true}}}
+```
+
+The placeholder deliberately fails validation until replaced. Other Compose features—including builds, commands, environment files, ports, volumes, host mounts, privileged mode, devices, includes and extensions—are rejected. Docker uses only the fixed local Windows named-pipe endpoint, no builds/pulls, an empty environment file and an internal unique project name. The reviewed manifest snapshot is supplied in memory to both start and stop, so stop does not reread a changed Compose file. See the official [Compose up options](https://docs.docker.com/reference/cli/docker/compose/up/).
+
+### Confirmation and process lifetime
+
+Every start and stop displays its exact plan and requires **Yes/Confirm** or **No/Cancel**. The token expires after 30 seconds by default, is single-use and is bound to a SHA-256 hash of the plan. Profiles, paths, file identities and entry/manifest hashes are checked again on confirmation. Modified, expired or replayed plans cannot launch. Wake listening stays paused during confirmation, and confirmation replies do not enter command routing or history.
+
+All launches use argument arrays with `shell=False`. Only profile-approved executables are allowed; no raw command-string API exists. This is an approval boundary, **not an OS sandbox for project source code**. Approve only projects, interpreters, npm scripts and images you trust: launched code retains your normal Windows permissions. Source dependencies are not recursively hashed or audited, and concurrent modification by another local process cannot be fully prevented.
+
+Each process has an internal instance identifier, project identifier, PID, start time, runner and state. A private supervisor assigns the new process to a Windows Job Object while suspended, before its first instruction; descendants remain in that owned job. No existing process or user-supplied PID is attached. See [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects). Duplicate starts are blocked unless the saved profile explicitly allows them. Stop requires a separate confirmation, attempts graceful termination, then forces only the owned job after the configured timeout. Docker first receives a fixed stop for its unique Compose project; daemon failures produce an unverified/failure state rather than a successful-stop claim.
+
+The red Stop button cancels VoxPilot work and pending confirmations. It does not implicitly terminate launched projects. Closing VoxPilot leaves projects running: detached supervisors continue draining and discarding output until their owned trees exit. No project-management worker threads remain in the UI. Tracking is session-only; a restarted UI deliberately cannot attach to or kill projects from a previous session. Use their normal application/Docker controls after exiting VoxPilot.
+
+Use **Refresh process output** to update the separate read-only output panel and states. Output is kept only in bounded memory, decoded with replacement, redacted for sensitive assignments, and discarded after retention or detachment. Partial lines are withheld until complete or bounded. Project requests, plans and output are not saved in command history. Only explicitly allowed non-sensitive environment names are inherited: `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `LANG`, `LC_ALL`, `PYTHONUTF8`. Names containing TOKEN, KEY, SECRET, PASSWORD, CREDENTIAL or AUTH are prohibited, as are PATH and Python/Node startup injection variables. Redaction is best-effort for arbitrary project output; avoid printing secrets.
+
+### Limits and verification
+
+Defaults in `.env.example`: discovery depth 3, 1,000 directories/entries per directory, 100 results and 15 seconds; output 500 lines/262,144 bytes per project; confirmation 30 seconds; graceful stop 10 seconds; completed output retention 60 seconds. The session tracks at most 100 instances. Manifest/profile/entry reads are limited to 64 KiB. Bounded scans may omit deeper or very wide projects; increase limits deliberately within validated caps. Rust and Go are discoverable/openable but have no inferred launch runner.
+
+See [MILESTONE7_VERIFICATION.md](MILESTONE7_VERIFICATION.md) for test results, limitations and manual acceptance steps. Existing wake detection, Whisper commands, URL allowlists, filesystem and PDF policies remain authoritative.

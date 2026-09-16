@@ -27,6 +27,9 @@ class ToolRegistry:
             return ToolResult(success=False, message="The requested tool or arguments are not approved.", error="Policy violation")
         from app.security.filesystem_policy import FILESYSTEM_TOOLS
         from app.documents.policy import DOCUMENT_TOOLS
+        from app.projects.policy import PROJECT_TOOLS
+        if request.tool_name in PROJECT_TOOLS:
+            return ToolResult(success=False, message="Use the confirmed project execution pipeline.")
         if request.tool_name in DOCUMENT_TOOLS:
             return ToolResult(success=False, message="Use the configured document execution pipeline.")
         if request.tool_name in FILESYSTEM_TOOLS:

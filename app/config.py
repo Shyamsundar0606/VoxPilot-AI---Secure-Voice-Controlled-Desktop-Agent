@@ -47,6 +47,16 @@ def _transcription_timeout() -> float:
 
 @dataclass(frozen=True)
 class Settings:
+    project_discovery_depth: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PROJECT_DISCOVERY_DEPTH", "3")))
+    project_discovery_limit: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PROJECT_DISCOVERY_LIMIT", "1000")))
+    project_result_limit: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PROJECT_RESULT_LIMIT", "100")))
+    project_discovery_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_PROJECT_DISCOVERY_TIMEOUT", "15")))
+    project_output_max_lines: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PROJECT_OUTPUT_MAX_LINES", "500")))
+    project_output_max_bytes: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PROJECT_OUTPUT_MAX_BYTES", "262144")))
+    project_confirmation_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_PROJECT_CONFIRMATION_TIMEOUT", "30")))
+    project_stop_timeout: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_PROJECT_STOP_TIMEOUT", "10")))
+    project_output_retention: float = field(default_factory=lambda: float(os.getenv("VOXPILOT_PROJECT_OUTPUT_RETENTION", "60")))
+    project_profiles_path: Path = field(default_factory=lambda: user_data_path("VoxPilot AI", ensure_exists=True) / "project-profiles.json")
     wake_engine: str = field(default_factory=lambda: os.getenv("VOXPILOT_WAKE_ENGINE", "vosk").strip().lower())
     wake_phrase: str = field(default_factory=configured_wake_phrase)
     vosk_model_path: Path = field(default_factory=lambda: Path(os.getenv("VOSK_MODEL_PATH", "models/vosk-model-small-en-us-0.15")))

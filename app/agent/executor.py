@@ -14,18 +14,20 @@ from app.models import ToolRequest
 
 
 class CommandExecutor:
-    def __init__(self, router=None, registry=None, planner=None, confirmations=None, documents=None):
+    def __init__(self, router=None, registry=None, planner=None, confirmations=None, documents=None, projects=None):
         self.router = router or CommandRouter()
         self.registry = registry or ToolRegistry()
         self.planner = planner
         self.confirmations = confirmations or Confirmations()
         self.documents = documents
+        self.projects = projects
 
     def execute(self, command: str, cancel_event=None, progress=lambda *_: None) -> ExecutionResult:
         started = perf_counter()
         cancel = cancel_event or Event()
         self.confirmations.cancel()  # A new request invalidates every prior proposal.
         if self.documents: self.documents.cancel_selection()
+        if self.projects: self.projects.cancel()
         if command.strip().casefold().rstrip(".!?") in {"cancel pdf summarization", "cancel document task"}:
             return ExecutionResult(original_command="", normalized_command="", selected_tool=None,
                                    status=Status.CANCELLED, result_message="Document task cancelled.", store_history=False)
@@ -54,6 +56,11 @@ class CommandExecutor:
         except ValueError:
             return self._result(routed, None, False, "The requested action is not approved.", None, started)
         from app.documents.policy import DOCUMENT_TOOLS
+        from app.projects.policy import PROJECT_TOOLS
+        if routed.tool_request.tool_name in PROJECT_TOOLS:
+            if self.projects: return self.projects.execute(routed.tool_request, cancel)
+            from app.projects.service import outcome
+            return outcome("Project management is not configured.", False)
         if routed.tool_request.tool_name in DOCUMENT_TOOLS:
             if self.documents:
                 return self.documents.execute(routed.tool_request, cancel, progress)

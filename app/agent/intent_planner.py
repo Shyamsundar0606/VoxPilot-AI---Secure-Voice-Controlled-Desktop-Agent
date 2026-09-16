@@ -48,7 +48,8 @@ class IntentPlanner:
             parsed = parse_intent(self.client.complete(text, cancel))
             intent = parsed.intent
             if cancel.is_set(): return Plan(message="Intent request cancelled.")
-            if parsed.confidence < self.min_confidence or (parsed.requires_confirmation and parsed.intent != "create_folder"): return Plan()
+            from app.security.policy import CONFIRMATION_REQUIRED_TOOLS
+            if parsed.confidence < self.min_confidence or (parsed.requires_confirmation and parsed.intent not in CONFIRMATION_REQUIRED_TOOLS): return Plan()
             request = parsed.to_request()
             validate_tool_request(request)
             if not self._grounded(text, request): return Plan()
@@ -65,6 +66,13 @@ class IntentPlanner:
     @staticmethod
     def _grounded(text, request):
         """Require a recognizable target; model confidence alone cannot authorize it."""
+        from app.projects.policy import PROJECT_TOOLS
+        if request.tool_name in PROJECT_TOOLS:
+            if not re.search(r"\bprojects?\b", text, re.I): return False
+            cues = {"list_projects": "list|show|discover", "open_project": "open", "get_project_info": "info|information|details",
+                    "start_project": "start|run", "stop_project": "stop", "list_running_projects": "running"}
+            if not re.search(r"\b(?:" + cues[request.tool_name] + r")\b", text, re.I): return False
+            return all(value == "all" or re.search(r"(?<!\w)" + re.escape(value) + r"(?!\w)", text, re.I) for value in request.arguments.values())
         from app.documents.policy import DOCUMENT_TOOLS
         if request.tool_name in DOCUMENT_TOOLS:
             args = request.arguments

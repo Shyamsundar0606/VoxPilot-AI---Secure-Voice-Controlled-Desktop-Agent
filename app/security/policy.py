@@ -6,4 +6,6 @@ from app.security.filesystem_policy import FILESYSTEM_TOOLS
 ALLOWED_TOOLS = ALLOWED_TOOLS | FILESYSTEM_TOOLS
 from app.documents.policy import DOCUMENT_TOOLS
 ALLOWED_TOOLS = ALLOWED_TOOLS | DOCUMENT_TOOLS
-CONFIRMATION_REQUIRED_TOOLS = frozenset({"create_folder"})
+from app.projects.policy import PROJECT_TOOLS
+ALLOWED_TOOLS = ALLOWED_TOOLS | PROJECT_TOOLS
+CONFIRMATION_REQUIRED_TOOLS = frozenset({"create_folder", "start_project", "stop_project"})

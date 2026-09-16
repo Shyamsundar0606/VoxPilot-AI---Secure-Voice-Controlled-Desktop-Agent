@@ -45,6 +45,10 @@ Copy all relative names exactly from the user. Never infer a missing root or fil
 summarize_pdf/locate_pdf: {"root": "documents", "query": "resume.pdf", "summary_style": "concise"}.
 PDF roots: desktop, documents, downloads, an explicitly named project_N, or all when unspecified.
 Copy the filename or safe name fragment literally from the request; no paths. Styles: concise, detailed, bullet_points.
+Project tools: list_projects {"root":"all" or literal project_N}; list_running_projects {}.
+open_project/get_project_info/start_project/stop_project {"project":"literal project name"}.
+Never generate project paths, executables, profiles, arguments or environment variables.
+start_project and stop_project ALWAYS require confirmation. Never guess ambiguous names.
 """
 
 

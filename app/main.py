@@ -25,6 +25,10 @@ from app.security.confirmations import Confirmations
 from app.tools.registry import ToolRegistry
 from app.documents.service import DocumentService
 from app.documents.limits import PdfLimits
+from app.projects.service import ProjectService
+from app.projects.profiles import Profiles
+from app.projects.processes import ProcessManager
+from app.projects.discovery import DiscoveryLimits
 
 
 def main() -> int:
@@ -36,6 +40,10 @@ def main() -> int:
     filesystem = FilesystemService(ApprovedRoots(settings.approved_roots_path), timeout=settings.filesystem_timeout,
         max_depth=settings.filesystem_max_depth, max_results=settings.filesystem_max_results)
     executor = CommandExecutor(planner=planner, registry=ToolRegistry(filesystem=filesystem),
+        projects=ProjectService(filesystem.roots, Profiles(filesystem.roots, settings.project_profiles_path),
+            ProcessManager(settings.project_output_max_bytes, settings.project_output_max_lines, settings.project_stop_timeout, settings.project_output_retention),
+            DiscoveryLimits(settings.project_discovery_depth, settings.project_discovery_limit, settings.project_result_limit, settings.project_discovery_timeout),
+            settings.project_confirmation_timeout),
         confirmations=Confirmations(settings.confirmation_timeout),
         documents=DocumentService(filesystem.roots, OllamaClient(settings.ollama_base_url, settings.primary_model), PdfLimits.from_settings(settings)))
     device_service = AudioDeviceService(store=DeviceSelectionStore(settings.voice_settings_path), target_sample_rate=settings.sample_rate)

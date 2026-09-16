@@ -66,9 +66,11 @@ class CommandSignalRelay(QObject):
     def __init__(self, window, worker):
         super().__init__(window)
         self.window, self.worker = window, worker
+        self.source = getattr(worker, "source", "command")
 
     def current(self):
-        return self.worker is self.window._active_worker and not self.window._cancelled and not self.window._close_pending
+        return (self.worker is self.window._active_worker and getattr(self.worker, "source", "command") == self.source
+                and not self.window._cancelled and not self.window._close_pending)
 
     @Slot(object)
     def complete(self, result):
@@ -87,12 +89,15 @@ class CommandWorker(QObject):
     finished = Signal(object)
     progress = Signal(str, str)
 
-    def __init__(self, executor, command: str, confirmation_token=None, document_selection=None):
+    def __init__(self, executor, command: str, confirmation_token=None, document_selection=None, project_confirmation=None, project_selection=None, project_profile=None):
         super().__init__()
         self.executor, self.command = executor, command
         self.cancel_event = Event()
         self.confirmation_token = confirmation_token
         self.document_selection = document_selection
+        self.project_confirmation, self.project_selection, self.project_profile = project_confirmation, project_selection, project_profile
+        from app.projects.policy import project_request
+        self.source = "project" if project_confirmation or project_selection or project_profile is not None or project_request(command) else "command"
         from app.documents.routing import document_request
         self.is_document_task = document_selection is not None or document_request(command) is not None
 
@@ -104,7 +109,15 @@ class CommandWorker(QObject):
                 result = self._cancelled_result()
             else:
                 if isinstance(self.executor, CommandExecutor):
-                    if self.document_selection:
+                    if self.project_profile is not None:
+                        from app.projects.service import outcome
+                        self.executor.projects.profiles.save(self.project_profile, self.cancel_event)
+                        result = outcome("Project profile validated and saved.")
+                    elif self.project_confirmation:
+                        result = self.executor.projects.confirm(*self.project_confirmation, self.cancel_event)
+                    elif self.project_selection:
+                        result = self.executor.projects.execute(cancel_event=self.cancel_event, selection=self.project_selection)
+                    elif self.document_selection:
                         result = self.executor.documents.execute(cancel_event=self.cancel_event,
                             progress=self.progress.emit, selection=self.document_selection)
                     else:
@@ -143,6 +156,7 @@ class ProjectRootWorker(QObject):
 
     def __init__(self, roots, path):
         super().__init__()
+        self.source = "project_approval"
         self.roots, self.path = roots, path
         self.cancel_event = Event()
 

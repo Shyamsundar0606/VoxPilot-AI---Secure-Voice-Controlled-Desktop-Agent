@@ -19,6 +19,7 @@ class Status(str, Enum):
     COMMAND_LISTENING = "Command listening"
     AWAITING_CONFIRMATION = "Awaiting confirmation"
     AWAITING_SELECTION = "Awaiting PDF selection"
+    AWAITING_PROJECT_SELECTION = "Awaiting project selection"
     LOCATING_PDF = "Locating PDF"
     EXTRACTING_PDF = "Extracting PDF"
     SUMMARIZING = "Summarizing"
@@ -50,6 +51,7 @@ class ToolResult(BaseModel):
 
 
 class ExecutionResult(BaseModel):
+    project_data: dict[str, Any] | None = None
     document_failure_code: DocumentFailureCode | None = None
     document_selection: dict[str, Any] | None = None
     spoken_message: str | None = None
