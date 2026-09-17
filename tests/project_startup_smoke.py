@@ -15,9 +15,12 @@ def main():
     with TemporaryDirectory(prefix="voxpilot-startup-", dir=Path.cwd()) as temporary:
         base = Path(temporary)
         settings = replace(entry.Settings(), database_path=base / "history.sqlite3", approved_roots_path=base / "roots.json",
-            voice_settings_path=base / "voice.json", project_profiles_path=base / "project-profiles.json", speech_enabled=False)
+            voice_settings_path=base / "voice.json", project_profiles_path=base / "project-profiles.json",
+            knowledge_index_path=base / 'knowledge.sqlite3', speech_enabled=False)
         entry.Settings = lambda: settings
         entry.load_project_env = lambda: None
+        from app.filesystem.platform import WindowsFolders
+        WindowsFolders.known_roots = lambda self: {}
         real_devices, real_window = entry.AudioDeviceService, entry.MainWindow
         backend = Mock(query_devices=Mock(return_value=[]), default=SimpleNamespace(device=(-1, -1)))
         entry.AudioDeviceService = lambda **kwargs: real_devices(backend=backend, **kwargs)
@@ -30,6 +33,8 @@ def main():
         result = entry.main()
         assert result == 0 and captured and not captured[0].isVisible()
         assert captured[0].executor.projects is not None
+        assert captured[0].executor.knowledge is not None
+        assert captured[0].knowledge_panel is not None
         assert not any(t.name.startswith("voxpilot-") for t in threads())
         backend.InputStream.assert_not_called(); backend.RawInputStream.assert_not_called()
         print("STARTUP_SMOKE_OK")

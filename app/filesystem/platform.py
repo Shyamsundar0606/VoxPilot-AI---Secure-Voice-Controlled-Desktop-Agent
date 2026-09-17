@@ -43,3 +43,12 @@ class WindowsFolders:
     def open_folder(self, path):
         # Only called with a freshly validated directory, never a file or command.
         os.startfile(str(path), "open")
+
+    def open_document(self, path):
+        """Knowledge citations only; caller revalidates approval and content identity."""
+        from app.knowledge.discovery import safe_source
+        from app.security.filesystem_policy import check_path_chain
+        safe_source(Path(path).name)
+        check_path_chain(Path(path))
+        if not Path(path).is_file(): raise FilePolicyError('Source is not a file.')
+        os.startfile(str(path), 'open')

@@ -51,6 +51,7 @@ class ToolResult(BaseModel):
 
 
 class ExecutionResult(BaseModel):
+    knowledge_data: dict[str, Any] | None = None
     project_data: dict[str, Any] | None = None
     document_failure_code: DocumentFailureCode | None = None
     document_selection: dict[str, Any] | None = None

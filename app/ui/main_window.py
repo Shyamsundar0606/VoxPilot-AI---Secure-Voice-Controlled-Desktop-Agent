@@ -125,6 +125,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Project management")); layout.addWidget(self.project_selector)
         layout.addWidget(self.project_state); layout.addLayout(project_buttons)
         layout.addWidget(QLabel("Process output (Refresh process output to update)")); layout.addWidget(self.project_output)
+        from app.ui.knowledge_panel import KnowledgePanel
+        self.knowledge_panel = KnowledgePanel(self)
+        layout.addWidget(self.knowledge_panel)
+        from app.ui.locations_panel import LocationsPanel
+        self.locations_panel = LocationsPanel(self)
+        layout.addWidget(self.locations_panel)
         layout.addWidget(self.pdf_choices); layout.addWidget(self.pdf_select_button)
         for title, widget in (("Recognized or typed command", self.command_panel), ("Execution result", self.result_panel), ("Command history", self.history)):
             layout.addWidget(QLabel(title)); layout.addWidget(widget)
@@ -135,11 +141,11 @@ class MainWindow(QMainWindow):
 
     def execute_command(self):
         response = self.input.text().strip().casefold().rstrip(".!?")
-        if self._confirmation and self._confirmation.get("kind") == "project" and response == "stop":
+        if self._confirmation and self._confirmation.get("kind") in {"project", "knowledge"} and response == "stop":
             self.stop(); self.input.clear(); return
-        if self._confirmation and self._confirmation.get("kind") == "project" and response in {"yes", "no", "confirm", "cancel"}:
+        if self._confirmation and self._confirmation.get("kind") in {"project", "knowledge"} and response in {"yes", "no", "confirm", "cancel"}:
             if response in {"yes", "confirm"}: self._confirm_creation()
-            else: self._cancel_confirmation("Project action cancelled.")
+            else: self._cancel_confirmation("Index action cancelled." if self._confirmation.get('kind') == 'knowledge' else "Project action cancelled.")
             self.input.clear(); return
         if response in {"yes", "no"}:
             self.status.setToolTip("There is no pending project confirmation."); self.input.clear(); return
@@ -170,7 +176,7 @@ class MainWindow(QMainWindow):
         command = self.input.text().strip()
         if not command:
             self.result_panel.setText("Please enter a command."); self._set_status(Status.FAILED); return
-        self.command_panel.setText(command); self._set_status(Status.PROCESSING)
+        self.command_panel.setPlainText(command); self._set_status(Status.PROCESSING)
         self._cancelled = False; self._set_busy_controls()
         self._launch_command_worker(CommandWorker(self.executor, command))
 
@@ -336,6 +342,7 @@ class MainWindow(QMainWindow):
         if self._close_pending: QTimer.singleShot(0, self.close); return
         if action == "manual": QTimer.singleShot(0, self.start_voice_command); return
         if action == "typed": QTimer.singleShot(0, self.execute_command); return
+        if action == 'knowledge_open': QTimer.singleShot(0, self.knowledge_panel.open_source); return
         if detected:
             self._after_tts(lambda: self.start_voice_command(wake_initiated=True)); return
         if self.wake_toggle.isChecked() and not self._cancelled:
@@ -418,6 +425,10 @@ class MainWindow(QMainWindow):
     def _complete(self, result):
         try:
             if self._cancelled: return
+            if result.selected_tool == 'approved_locations':
+                self.locations_panel.complete(result)
+            if result.selected_tool == 'knowledge_operation':
+                self.knowledge_panel.complete(result)
             self.document_progress.clear(); self.document_progress.hide()
             if result.document_failure_code is not None:
                 from app.documents.errors import DocumentError
@@ -430,20 +441,20 @@ class MainWindow(QMainWindow):
                 self.pdf_choices.clear()
                 self.pdf_choices.addItems([f"{i + 1}. {label}" for i, label in enumerate(result.document_selection["labels"])])
                 self.pdf_choices.show(); self.pdf_select_button.show()
-                self.pdf_select_button.setText("Select project" if result.document_selection.get("kind") == "project" else "Summarize selected PDF")
+                self.pdf_select_button.setText("Select indexed document" if result.document_selection.get('kind') == 'knowledge' else "Select project" if result.document_selection.get("kind") == "project" else "Summarize selected PDF")
                 self._selection_timer.start(round(result.document_selection["timeout"] * 1000))
                 self.result_panel.setPlainText(result.result_message)
                 self._set_status(Status.AWAITING_PROJECT_SELECTION if result.document_selection.get("kind") == "project" else Status.AWAITING_SELECTION); self.input.clear()
                 return
             if result.confirmation:
                 self._confirmation = result.confirmation
-                project = result.confirmation.get("kind") == "project"
+                project = result.confirmation.get("kind") in {"project", "knowledge"}
                 self.confirmation_label.setTextFormat(Qt.TextFormat.PlainText)
                 self.confirmation_label.setText(result.confirmation["details"] if project else f"Create folder: {result.confirmation['folder_name']}\nParent: {result.confirmation['parent']}")
                 self.confirmation_panel.show()
                 self.input.clear()
                 self._confirmation_timer.start(round(result.confirmation["timeout"] * 1000))
-                self.result_panel.setPlainText("Review the exact project plan, then Yes or No (or Confirm / Cancel)." if project else "Review the exact location, then Confirm or Cancel. You can also use Microphone to say Confirm or Cancel.")
+                self.result_panel.setPlainText("Review the index action, then Yes or No (or Confirm / Cancel)." if result.confirmation.get('kind') == 'knowledge' else "Review the exact project plan, then Yes or No (or Confirm / Cancel)." if project else "Review the exact location, then Confirm or Cancel. You can also use Microphone to say Confirm or Cancel.")
                 self._set_status(Status.AWAITING_CONFIRMATION)
                 return
             if not result.store_history:
@@ -463,7 +474,7 @@ class MainWindow(QMainWindow):
                 self.input.clear()
                 if result.selected_tool is not None:
                     # Speak a short summary, not full directory listings.
-                    if result.selected_tool == "summarize_pdf":
+                    if result.selected_tool in {"summarize_pdf", "knowledge_operation"}:
                         if self.tts.enabled and result.spoken_message: self.tts.speak(result.spoken_message)
                     elif result.selected_tool == "project_operation": self.tts.speak("Project operation completed." if result.status == Status.COMPLETED else result.result_message)
                     else: self.tts.speak("File operation completed." if result.status == Status.COMPLETED else result.result_message)
@@ -479,6 +490,7 @@ class MainWindow(QMainWindow):
             if self._active_thread is None: self._set_idle_controls()
 
     def stop(self):
+        knowledge_active = getattr(self._active_worker, 'source', None) == 'knowledge'
         project_active = bool((self._document_selection and self._document_selection.get("kind") == "project") or
             (self._confirmation and self._confirmation.get("kind") == "project") or getattr(self._active_worker, "source", None) == "project")
         document_active = bool((self._document_selection and self._document_selection.get("kind") != "project") or (isinstance(self._active_worker, CommandWorker) and
@@ -502,6 +514,7 @@ class MainWindow(QMainWindow):
         else: self.result_panel.setText("No cancellable action is currently running.")
         if document_active: self.result_panel.setPlainText("Document task cancelled.")
         if project_active: self.result_panel.setPlainText("Project operation cancelled. Already launched projects remain running.")
+        if knowledge_active: self.knowledge_progress.setText('Knowledge operation cancelled; incomplete updates will be rolled back.')
         stop_speech = getattr(self.tts, "stop", None)
         if stop_speech: stop_speech()
         self._set_status(Status.CANCELLED if document_active else Status.IDLE); self.audio_level.setValue(0)
@@ -519,6 +532,8 @@ class MainWindow(QMainWindow):
         if self.wake_toggle.isChecked() and not self._confirmation: QTimer.singleShot(round(self.settings.wake_word_cooldown * 1000), self._start_wake_listener)
 
     def _set_busy_controls(self):
+        self.locations_panel.set_busy(True)
+        self.knowledge_panel.set_busy(True)
         for button in self.project_controls: button.setEnabled(False)
         self.pdf_select_button.setEnabled(False)
         self.project_button.setEnabled(False); self.confirm_button.setEnabled(False)
@@ -526,6 +541,8 @@ class MainWindow(QMainWindow):
 
     def _set_idle_controls(self):
         busy = self._active_thread is not None or self._voice_thread is not None or self._tts_pending
+        self.locations_panel.set_busy(busy or self._wake_thread is not None)
+        self.knowledge_panel.set_busy(busy)
         for button in self.project_controls: button.setEnabled(not busy)
         self.execute_button.setEnabled(not busy); self.microphone_button.setEnabled(not busy and self.device_service is not None)
         self.input.setEnabled(not busy); self.stop_button.setEnabled(busy or self._wake_thread is not None)
@@ -551,6 +568,7 @@ class MainWindow(QMainWindow):
         if isinstance(self.executor, CommandExecutor) and self.executor.documents:
             self.executor.documents.cancel_selection()
         if pending and pending.get("kind") == "project" and self.executor.projects: self.executor.projects.cancel()
+        if pending and pending.get('kind') == 'knowledge' and self.executor.knowledge: self.executor.knowledge.cancel()
         if pending:
             if message: self.result_panel.setPlainText(message)
             self._set_idle_controls()
@@ -562,10 +580,15 @@ class MainWindow(QMainWindow):
             self.status.setToolTip("Choose one of the numbered PDFs."); return
         token = self._document_selection["token"]
         project = self._document_selection.get("kind") == "project"
+        knowledge = self._document_selection.get('kind') == 'knowledge'
         self._document_selection = None
         self._selection_timer.stop(); self.pdf_choices.hide(); self.pdf_select_button.hide(); self.pdf_choices.clear()
         self.input.clear(); self._cancelled = False
         self._set_busy_controls(); self._set_status(Status.PROCESSING if project else Status.EXTRACTING_PDF)
+        if knowledge:
+            self._set_status(Status.PROCESSING)
+            self._launch_command_worker(CommandWorker(self.executor, '[Selected indexed document]', knowledge_selection=(token, number)))
+            return
         self._launch_command_worker(CommandWorker(self.executor, "[Selected project]" if project else "[Selected PDF]",
             project_selection=(token, number) if project else None, document_selection=None if project else (token, number)))
 
@@ -577,6 +600,7 @@ class MainWindow(QMainWindow):
         if isinstance(self.executor, CommandExecutor):
             self.executor.confirmations.cancel()
             if self.executor.projects: self.executor.projects.cancel()
+            if self.executor.knowledge: self.executor.knowledge.cancel()
         if pending:
             self.result_panel.setText(message); self._set_idle_controls()
             if resume and self.wake_toggle.isChecked(): self._after_tts(self._start_wake_listener)
@@ -585,10 +609,14 @@ class MainWindow(QMainWindow):
         if not self._confirmation or self._active_thread or self._voice_thread: return
         token = self._confirmation["token"]
         project_confirmation = (token, self._confirmation["hash"]) if self._confirmation.get("kind") == "project" else None
+        knowledge_confirmation = (token, self._confirmation['hash']) if self._confirmation.get('kind') == 'knowledge' else None
         self._confirmation = None
         self._confirmation_timer.stop(); self.confirmation_panel.hide()
         self._cancelled = False
         self._set_busy_controls(); self._set_status(Status.PROCESSING)
+        if knowledge_confirmation:
+            self._launch_command_worker(CommandWorker(self.executor, '[Confirmed index action]', knowledge_confirmation=knowledge_confirmation))
+            return
         self._launch_command_worker(CommandWorker(self.executor, "[Confirmed project]" if project_confirmation else "create_folder",
             confirmation_token=None if project_confirmation else token, project_confirmation=project_confirmation))
 
@@ -660,6 +688,8 @@ class MainWindow(QMainWindow):
         except Exception: logger.exception("Could not load command history")
 
     def closeEvent(self, event):
+        from app.agent.executor import CommandExecutor
+        if isinstance(self.executor, CommandExecutor) and self.executor.knowledge: self.executor.knowledge.close()
         self._project_output_timer.stop()
         self._wake_retry.stop()
         self._cancel_pdf_selection(resume=False)

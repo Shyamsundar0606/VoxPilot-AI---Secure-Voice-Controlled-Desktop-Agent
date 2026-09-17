@@ -9,3 +9,6 @@ ALLOWED_TOOLS = ALLOWED_TOOLS | DOCUMENT_TOOLS
 from app.projects.policy import PROJECT_TOOLS
 ALLOWED_TOOLS = ALLOWED_TOOLS | PROJECT_TOOLS
 CONFIRMATION_REQUIRED_TOOLS = frozenset({"create_folder", "start_project", "stop_project"})
+from app.knowledge.policy import KNOWLEDGE_TOOLS
+ALLOWED_TOOLS = ALLOWED_TOOLS | KNOWLEDGE_TOOLS
+CONFIRMATION_REQUIRED_TOOLS = CONFIRMATION_REQUIRED_TOOLS | {'remove_indexed_document', 'clear_document_index'}

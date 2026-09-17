@@ -9,7 +9,7 @@ DOCUMENT_TOOLS = frozenset({"summarize_pdf", "locate_pdf"})
 
 
 def allowed_document_root(root):
-    return root in {"desktop", "documents", "downloads"} or re.fullmatch(r"project_[1-9]\d*", root) is not None
+    return root in {"desktop", "documents", "downloads"} or re.fullmatch(r"(?:document|project)_[1-9]\d*", root) is not None
 
 
 class PdfArgs(RootArgs):

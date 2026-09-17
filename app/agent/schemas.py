@@ -8,7 +8,7 @@ from app.security.validators import validate_tool_request
 
 class IntentOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    intent: Literal["open_application", "open_safe_url", "search_google", "get_time", "get_date", "battery_status", "storage_status", "help", "open_folder", "list_directory", "find_file", "create_folder", "file_info", "summarize_pdf", "locate_pdf", "list_projects", "open_project", "get_project_info", "start_project", "list_running_projects", "stop_project"]
+    intent: Literal["open_application", "open_safe_url", "search_google", "get_time", "get_date", "battery_status", "storage_status", "help", "open_folder", "list_directory", "find_file", "create_folder", "file_info", "summarize_pdf", "locate_pdf", "list_projects", "open_project", "get_project_info", "start_project", "list_running_projects", "stop_project", "index_documents", "refresh_document_index", "list_indexed_documents", "ask_documents", "search_documents", "show_answer_sources", "remove_indexed_document", "clear_document_index"]
     arguments: dict[str, str | int]
     confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     requires_confirmation: bool

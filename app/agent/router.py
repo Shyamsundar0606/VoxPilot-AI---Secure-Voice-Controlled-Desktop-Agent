@@ -21,6 +21,10 @@ class CommandRouter:
     def route(self, command: str) -> RoutedCommand:
         normalized = normalize_command(command)
         base = {"original_command": command, "normalized_command": normalized}
+        from app.knowledge.policy import knowledge_request
+        knowledge_tool = knowledge_request(command)
+        if knowledge_tool is not None:
+            return RoutedCommand(**base, supported=True, tool_request=knowledge_tool)
         from app.projects.policy import project_request
         project_tool = project_request(command)
         if project_tool is not None:

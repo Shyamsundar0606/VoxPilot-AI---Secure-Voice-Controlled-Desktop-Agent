@@ -66,6 +66,10 @@ class IntentPlanner:
     @staticmethod
     def _grounded(text, request):
         """Require a recognizable target; model confidence alone cannot authorize it."""
+        from app.knowledge.policy import KNOWLEDGE_TOOLS, knowledge_request
+        if request.tool_name in KNOWLEDGE_TOOLS:
+            exact = knowledge_request(text)
+            return exact is not None and exact == request
         from app.projects.policy import PROJECT_TOOLS
         if request.tool_name in PROJECT_TOOLS:
             if not re.search(r"\bprojects?\b", text, re.I): return False

@@ -2,7 +2,7 @@
 
 VoxPilot AI is a local-first Windows desktop assistant. Its voice identity is **Shyam**. The project aims to make common laptop actions accessible through natural language while keeping execution deterministic, restricted, and private.
 
-Milestones 1–6 provide safe desktop tools, local speech recognition, exact "Hello" wake activation, local intent planning, approved-folder operations and local PDF summarization.
+Milestones 1–8 provide safe desktop tools, local speech recognition, exact "Hello" wake activation, local intent planning, approved-folder operations, local PDF summarization, approved project management, and local document indexing with citation-based question answering.
 
 ## The problem
 
@@ -152,7 +152,7 @@ Install the updated `requirements.txt` in your chosen Python 3.12 environment to
 
 Try `Summarize resume.pdf in Documents`, `Summarize my resume`, `Give me the main points from report.pdf`, or `Summarize thesis.pdf in Downloads`. `Locate report.pdf` displays explicit choices even for a single match. `Show information about report.pdf` continues to use the existing metadata-only file tool. Deterministic routing runs first; only other safe wording may use the local intent planner.
 
-PDF search is limited to Desktop, Documents, Downloads and approved `project_N` folders. With no root specified it searches these locations only. Queries are safe filenames or name fragments, never full paths or URLs. Exact `.pdf` filenames match case-insensitively; fragments match PDF basenames. Search stops at depth four, 10,000 visited entries or more than 20 matches; narrow the request if a search limit is reached. A depth-limited search cannot discover deeper files.
+PDF search is limited to Desktop, Documents, Downloads and explicitly approved `document_N` or `project_N` folders. With no root specified it searches these locations only. Queries are safe filenames or name fragments, never full paths or URLs. Exact `.pdf` filenames match case-insensitively; fragments match PDF basenames. Search stops at depth four, 10,000 visited entries or more than 20 matches; narrow the request if a search limit is reached. A depth-limited search cannot discover deeper files.
 
 Multiple matches require a numbered choice. Select a row and click **Summarize selected PDF**, type a number, or use **Microphone** to say `select two`. Choices show only the logical root and safe relative filename. Selection expires after 60 seconds and is cancelled by an unrelated command, Stop or closing the application. File identity and policy are checked again before extraction. No model can supply the private selection token or choose an absolute path.
 
@@ -300,3 +300,75 @@ Use **Refresh process output** to update the separate read-only output panel and
 Defaults in `.env.example`: discovery depth 3, 1,000 directories/entries per directory, 100 results and 15 seconds; output 500 lines/262,144 bytes per project; confirmation 30 seconds; graceful stop 10 seconds; completed output retention 60 seconds. The session tracks at most 100 instances. Manifest/profile/entry reads are limited to 64 KiB. Bounded scans may omit deeper or very wide projects; increase limits deliberately within validated caps. Rust and Go are discoverable/openable but have no inferred launch runner.
 
 See [MILESTONE7_VERIFICATION.md](MILESTONE7_VERIFICATION.md) for test results, limitations and manual acceptance steps. Existing wake detection, Whisper commands, URL allowlists, filesystem and PDF policies remain authoritative.
+
+## Milestone 8: Local Knowledge
+
+Local Knowledge indexes text-based PDF, UTF-8 TXT and Markdown files, retrieves relevant excerpts, and answers questions with file/page citations. Source files are read only. Word, PowerPoint, OCR, images, websites and remote documents are not supported.
+
+### Setup and first use
+
+Install the embedding model yourself in the local Ollama installation:
+
+```powershell
+ollama pull nomic-embed-text
+```
+
+The answer model uses `VOXPILOT_PRIMARY_MODEL` (default `llama3.2:3b`) and must also already be installed. VoxPilot never downloads models automatically. Both requests use the configured HTTP loopback Ollama endpoint; redirects, environment proxies, remote model metadata and cloud model names are rejected. Embeddings use Ollama's documented [`/api/embed` endpoint](https://docs.ollama.com/api/embed) with truncation disabled. One transient connection/timeout retry is allowed within the operation deadline; there is no online fallback.
+
+Select **Load index / sources** in **Local Knowledge** to load approved source identifiers and the document count. Select one source, then **Index documents**. Desktop, Documents and Downloads use the existing Windows Known Folder policy. To use a different folder, stop wake listening and use **Approved Locations → Add approved folder** with **General document location** selected. Its saved `document_N` identifier appears in the source selector. Existing `project_N` sources remain supported. Folder approval is shared with the filesystem, PDF, Knowledge and project services; only project approvals enable project discovery.
+
+Examples:
+
+- `Index PDFs in Documents` — PDF only in that selected root.
+- `Index documents in project_1` — PDF, TXT and Markdown in that selected root.
+- `Refresh my document index` — rescan previously indexed scopes.
+- `Show indexed documents` — safe relative names, status and PDF page counts.
+- `Ask my documents: What are the main risks?`
+- `Search my documents for data governance`
+- `Which document discusses cloud security?`
+- `Show sources for the last answer`
+- `Remove report.pdf from the index`
+- `Clear the document index`
+
+Root selection is required for indexing; an unspecified or `all` root is rejected. Duplicate filenames produce up to 20 numbered choices before a removal proposal. Removal and clearing require a separate **Yes/Confirm**; **No/Cancel**, expiry, another command, Stop and closing invalidate proposals. Tokens expire after 30 seconds, are single-use and bind the action and current index revision. Clearing removes local index entries only, never source files. Removed files can be indexed again by a later refresh of their source scope.
+
+### Evidence and privacy
+
+Answers appear in a dedicated panel with plain source labels and bounded excerpts. PDF citations include page numbers. Select a source and use **Open selected approved source** to open it through the guarded Windows filesystem adapter; the source is revalidated against its approved root, identity and content hash first. There are no executable citation links. TXT/Markdown have no synthetic page numbers.
+
+Questions retrieve at most six chunks by default, with a minimum cosine similarity of 0.25 and at most two chunks per document. Overlapping chunks and duplicate excerpt text are suppressed. Weak evidence produces an insufficient-information message. Answer JSON is strictly validated and each citation must exactly match a retrieved chunk. Invalid model output or model failure displays retrieved excerpts instead of an answer. Citation validation proves which supplied chunk is referenced; it cannot prove the truth of every generated sentence. Review the excerpts for consequential uses.
+
+Document content is untrusted data. It cannot execute tools, change policy or become another VoxPilot command. Answer generation has no tools and uses separate system instructions, question and evidence fields. Only bounded retrieved content goes to the local answer model, never arbitrary file access or unrestricted absolute source paths. Keep Ollama configured for local-only operation as described above.
+
+The versioned index is `knowledge-v1.sqlite3` in VoxPilot's application-data directory, outside source folders. SQLite stores metadata, chunk text, and checksummed little-endian float32 vectors together. NumPy performs bounded cosine retrieval; there is no network vector database or pickle. SQLite transactions commit the whole indexing operation or roll it back. Unknown schema versions and corrupt rows fail closed without automatic migration. Index files are ignored by Git. The index contains readable document excerpts and is protected by the current Windows account's filesystem permissions, not application-level encryption. Questions, answers and excerpts are excluded from command history and logs.
+
+Unchanged content hashes reuse embeddings. Renames preserve document identity when the filesystem identity and content match; copied files have separate identities, with duplicate excerpts suppressed during retrieval. Changed documents replace their old chunks; successful refresh removes deleted or revoked sources. Before retrieval and again after generation, source identity, hash and approval are rechecked. Stale or inaccessible sources cannot provide answers even before a refresh.
+
+### Limits and cancellation
+
+`.env.example` documents all required knowledge settings. Defaults: 1,800 characters per chunk, overlap 250, 500 documents, 500 chunks per document, 50,000 total chunks, 20 MiB per file, 600 seconds per indexing operation, 120 seconds per query, and 6,000 answer characters. Additional hard limits include 4,096 vector dimensions, 512 MiB for the SQLite main file, 10,000 discovery entries, depth four, 24,000 retrieved context characters, and 20 ambiguous removal choices. SQLite's rollback journal can temporarily require roughly another database's worth of disk space. Invalid configurations are rejected.
+
+Existing PDF limits apply, including page, character, parser memory and extraction-time bounds. Scanned PDFs report that OCR is unavailable; encrypted, malformed and truncated PDFs are rejected. TXT/Markdown use bounded UTF-8 replacement decoding; binary NUL-containing files are rejected. Hidden/system files, links/junctions, environment files, keys, credential locations, dependency trees, build output, logs and database formats are excluded. A discovery, extraction, embedding or storage failure aborts the update; an old committed index remains intact. Approve a smaller dedicated source folder if its depth, width or content exceeds limits.
+
+All knowledge operations run through retained Qt command workers; parsing, hashing, discovery and HTTP requests use cancellable isolated processes. **Cancel** in Local Knowledge rolls back work and allows enabled wake mode to resume. The existing red **Stop** also cancels knowledge work and retains its established behavior of disabling wake mode. Closing cancels active workers before exiting. Short spoken notifications refer to the visible answer and sources; the full answer is not read aloud. Wake resumption does not erase the answer.
+
+Chunk text intentionally persists in the local index. Extraction and request buffers are released after use; mutable raw byte/vector buffers are cleared. Python immutable strings, SQLite/OS caches, paging and storage devices cannot promise forensic erasure. Revalidations narrow filesystem races but cannot defeat a hostile process running with the same account privileges. See [MILESTONE8_VERIFICATION.md](MILESTONE8_VERIFICATION.md) for tests, limitations and manual acceptance steps.
+
+## Approved Locations
+
+Stop listening before managing folder approvals. The **Approved Locations** section shows each identifier, folder name, full path, availability and approval type. Use:
+
+- **Add approved folder**: choose General document location or Projects location, then select a local fixed-drive folder. Multiple folders and explicitly approved nested folders are supported.
+- **Remove selected folder**: confirm the identifier and full path. Only approval is removed; the folder and its files remain intact. Other approvals for a parent or child remain effective.
+- **Open selected folder**: revalidate the approval and open the folder through the Windows adapter.
+- **Refresh folders**: reload availability and update the Local Knowledge source selector.
+
+Examples: `Open document_1`, `Show files in document_1`, `Find files named invoice in document_1`, `Summarize report.pdf in document_1`, and `Index documents in document_1` (use your displayed identifier).
+
+Approvals are saved with atomic replacement in the application's `approved-roots.json`. Existing project approvals migrate on the next change. Removed identifiers are reserved so existing index records and launch profiles cannot silently refer to a different folder. Removing a built-in Known Folder persists across restarts. Invalid/unreadable settings fail closed and show an error; missing folders remain listed for removal or troubleshooting.
+
+All descendants are within an approved root's scope, subject to existing sensitive-name, hidden/system, reparse-point and resource-limit rules. Recursive discovery retains its depth/time/result limits; explicitly approve a narrower nested folder when necessary. Drive roots, the user profile, the application repository and its ancestors, sensitive system paths, UNC/network/device paths, traversal and symlink/junction escapes are blocked. Every operation resolves and checks its root and target again. As before, path checks are not an OS sandbox against concurrent changes by another local process.
+
+Pictures, Music and Videos retain their existing general filesystem access; approve them explicitly as document locations to use them for PDF/Knowledge processing. General document approval does not grant project launch approval. Existing project launch confirmations and executable allowlists still apply.
+
+See `APPROVED_LOCATIONS_VERIFICATION.md` for verification results.

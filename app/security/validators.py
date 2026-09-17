@@ -26,6 +26,10 @@ def validate_search_query(query: str) -> str:
 def validate_tool_request(request: ToolRequest) -> None:
     if request.tool_name not in ALLOWED_TOOLS:
         raise PolicyViolation("The requested tool is not approved.")
+    from app.knowledge.policy import KNOWLEDGE_TOOLS, validate_arguments as validate_knowledge
+    if request.tool_name in KNOWLEDGE_TOOLS:
+        validate_knowledge(request.tool_name, request.arguments)
+        return
     from app.projects.policy import PROJECT_TOOLS, validate_arguments
     if request.tool_name in PROJECT_TOOLS:
         validate_arguments(request.tool_name, request.arguments)

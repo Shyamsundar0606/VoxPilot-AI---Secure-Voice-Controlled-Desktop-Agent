@@ -25,6 +25,9 @@ class ToolRegistry:
             validate_tool_request(request)
         except ValueError:
             return ToolResult(success=False, message="The requested tool or arguments are not approved.", error="Policy violation")
+        from app.knowledge.policy import KNOWLEDGE_TOOLS
+        if request.tool_name in KNOWLEDGE_TOOLS:
+            return ToolResult(success=False, message='Use the configured knowledge pipeline.')
         from app.security.filesystem_policy import FILESYSTEM_TOOLS
         from app.documents.policy import DOCUMENT_TOOLS
         from app.projects.policy import PROJECT_TOOLS

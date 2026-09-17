@@ -29,6 +29,11 @@ from app.projects.service import ProjectService
 from app.projects.profiles import Profiles
 from app.projects.processes import ProcessManager
 from app.projects.discovery import DiscoveryLimits
+from app.knowledge.limits import KnowledgeLimits
+from app.knowledge.storage import IndexStore
+from app.knowledge.transport import KnowledgeClient
+from app.knowledge.embedding import Embedder
+from app.knowledge.service import KnowledgeService
 
 
 def main() -> int:
@@ -39,7 +44,12 @@ def main() -> int:
     planner = IntentPlanner(OllamaClient(settings.ollama_base_url, settings.intent_model, timeout=settings.intent_timeout), settings.intent_min_confidence)
     filesystem = FilesystemService(ApprovedRoots(settings.approved_roots_path), timeout=settings.filesystem_timeout,
         max_depth=settings.filesystem_max_depth, max_results=settings.filesystem_max_results)
+    knowledge_limits = KnowledgeLimits.from_environment()
+    knowledge = KnowledgeService(filesystem.roots, IndexStore(settings.knowledge_index_path, knowledge_limits),
+        Embedder(KnowledgeClient(settings.ollama_base_url, settings.knowledge_embed_model), knowledge_limits),
+        KnowledgeClient(settings.ollama_base_url, settings.primary_model), knowledge_limits, PdfLimits.from_settings(settings))
     executor = CommandExecutor(planner=planner, registry=ToolRegistry(filesystem=filesystem),
+        knowledge=knowledge,
         projects=ProjectService(filesystem.roots, Profiles(filesystem.roots, settings.project_profiles_path),
             ProcessManager(settings.project_output_max_bytes, settings.project_output_max_lines, settings.project_stop_timeout, settings.project_output_retention),
             DiscoveryLimits(settings.project_discovery_depth, settings.project_discovery_limit, settings.project_result_limit, settings.project_discovery_timeout),
@@ -55,6 +65,9 @@ def main() -> int:
         voice_controller=VoiceCommandController(CommandRouter(), executor, allow_intent_planning=True), wake_controller=wake_controller,
     )
     window.show()
+    from PySide6.QtCore import QTimer
+    if not window.wake_toggle.isChecked():
+        QTimer.singleShot(0, lambda: window.locations_panel.action("refresh"))
     return application.exec()
 
 

@@ -14,13 +14,14 @@ from app.models import ToolRequest
 
 
 class CommandExecutor:
-    def __init__(self, router=None, registry=None, planner=None, confirmations=None, documents=None, projects=None):
+    def __init__(self, router=None, registry=None, planner=None, confirmations=None, documents=None, projects=None, knowledge=None):
         self.router = router or CommandRouter()
         self.registry = registry or ToolRegistry()
         self.planner = planner
         self.confirmations = confirmations or Confirmations()
         self.documents = documents
         self.projects = projects
+        self.knowledge = knowledge
 
     def execute(self, command: str, cancel_event=None, progress=lambda *_: None) -> ExecutionResult:
         started = perf_counter()
@@ -28,6 +29,7 @@ class CommandExecutor:
         self.confirmations.cancel()  # A new request invalidates every prior proposal.
         if self.documents: self.documents.cancel_selection()
         if self.projects: self.projects.cancel()
+        if self.knowledge: self.knowledge.cancel()
         if command.strip().casefold().rstrip(".!?") in {"cancel pdf summarization", "cancel document task"}:
             return ExecutionResult(original_command="", normalized_command="", selected_tool=None,
                                    status=Status.CANCELLED, result_message="Document task cancelled.", store_history=False)
@@ -35,6 +37,8 @@ class CommandExecutor:
             return ExecutionResult(original_command="", normalized_command="", selected_tool=None,
                                    status=Status.IDLE, result_message="Wake phrase consumed.", store_history=False)
         routed = self.router.route(command)
+        from app.knowledge.policy import KNOWLEDGE_TOOLS
+        knowledge_request = routed.tool_request is not None and routed.tool_request.tool_name in KNOWLEDGE_TOOLS
         if cancel.is_set():
             return ExecutionResult(original_command="[Cancelled request]", normalized_command="", selected_tool=None,
                                    status=Status.FAILED, result_message="Command cancelled.", store_history=False)
@@ -54,7 +58,13 @@ class CommandExecutor:
         try:
             validate_tool_request(routed.tool_request)
         except ValueError:
+            if knowledge_request:
+                from app.knowledge.service import outcome
+                return outcome('Invalid knowledge request. Select one approved source root and use a bounded question or safe relative filename.', False)
             return self._result(routed, None, False, "The requested action is not approved.", None, started)
+        if routed.tool_request.tool_name in KNOWLEDGE_TOOLS:
+            from app.knowledge.service import outcome
+            return self.knowledge.execute(routed.tool_request, cancel, progress) if self.knowledge else outcome('Local knowledge is not configured.', False)
         from app.documents.policy import DOCUMENT_TOOLS
         from app.projects.policy import PROJECT_TOOLS
         if routed.tool_request.tool_name in PROJECT_TOOLS:
@@ -92,4 +102,6 @@ class CommandExecutor:
 
     @staticmethod
     def _result(routed, tool, success, message, error, started):
-        return ExecutionResult(original_command=routed.original_command, normalized_command=routed.normalized_command, selected_tool=tool, status=Status.COMPLETED if success else Status.FAILED, result_message=message, error_message=error, duration_ms=round((perf_counter() - started) * 1000))
+        from app.knowledge.policy import KNOWLEDGE_TOOLS
+        private = routed.tool_request is not None and routed.tool_request.tool_name in KNOWLEDGE_TOOLS
+        return ExecutionResult(original_command='[Local knowledge operation]' if private else routed.original_command, normalized_command='' if private else routed.normalized_command, selected_tool=tool, status=Status.COMPLETED if success else Status.FAILED, result_message=message, error_message=error, duration_ms=round((perf_counter() - started) * 1000), store_history=not private)

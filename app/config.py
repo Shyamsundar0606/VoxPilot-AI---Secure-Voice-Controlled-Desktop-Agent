@@ -47,6 +47,8 @@ def _transcription_timeout() -> float:
 
 @dataclass(frozen=True)
 class Settings:
+    knowledge_embed_model: str = field(default_factory=lambda: os.getenv('VOXPILOT_KNOWLEDGE_EMBED_MODEL', 'nomic-embed-text'))
+    knowledge_index_path: Path = field(default_factory=lambda: user_data_path('VoxPilot AI', ensure_exists=True) / 'knowledge-v1.sqlite3')
     project_discovery_depth: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PROJECT_DISCOVERY_DEPTH", "3")))
     project_discovery_limit: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PROJECT_DISCOVERY_LIMIT", "1000")))
     project_result_limit: int = field(default_factory=lambda: int(os.getenv("VOXPILOT_PROJECT_RESULT_LIMIT", "100")))

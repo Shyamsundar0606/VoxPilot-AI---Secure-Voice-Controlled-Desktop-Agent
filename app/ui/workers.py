@@ -83,21 +83,25 @@ class CommandSignalRelay(QObject):
             self.window.status.setToolTip(detail)
             self.window.document_progress.setText(detail)
             self.window.document_progress.show()
+            if self.source == 'knowledge': self.window.knowledge_progress.setText(detail)
 
 
 class CommandWorker(QObject):
     finished = Signal(object)
     progress = Signal(str, str)
 
-    def __init__(self, executor, command: str, confirmation_token=None, document_selection=None, project_confirmation=None, project_selection=None, project_profile=None):
+    def __init__(self, executor, command: str, confirmation_token=None, document_selection=None, project_confirmation=None, project_selection=None, project_profile=None, knowledge_confirmation=None, knowledge_selection=None, knowledge_open=None):
         super().__init__()
         self.executor, self.command = executor, command
         self.cancel_event = Event()
+        self.knowledge_confirmation, self.knowledge_selection, self.knowledge_open = knowledge_confirmation, knowledge_selection, knowledge_open
         self.confirmation_token = confirmation_token
         self.document_selection = document_selection
         self.project_confirmation, self.project_selection, self.project_profile = project_confirmation, project_selection, project_profile
         from app.projects.policy import project_request
         self.source = "project" if project_confirmation or project_selection or project_profile is not None or project_request(command) else "command"
+        from app.knowledge.policy import knowledge_request
+        if knowledge_confirmation or knowledge_selection or knowledge_open or knowledge_request(command): self.source = 'knowledge'
         from app.documents.routing import document_request
         self.is_document_task = document_selection is not None or document_request(command) is not None
 
@@ -109,7 +113,10 @@ class CommandWorker(QObject):
                 result = self._cancelled_result()
             else:
                 if isinstance(self.executor, CommandExecutor):
-                    if self.project_profile is not None:
+                    if self.knowledge_confirmation or self.knowledge_selection or self.knowledge_open:
+                        result = self.executor.knowledge.execute(cancel_event=self.cancel_event, progress=self.progress.emit,
+                            confirmation=self.knowledge_confirmation, selection=self.knowledge_selection, open_source=self.knowledge_open)
+                    elif self.project_profile is not None:
                         from app.projects.service import outcome
                         self.executor.projects.profiles.save(self.project_profile, self.cancel_event)
                         result = outcome("Project profile validated and saved.")

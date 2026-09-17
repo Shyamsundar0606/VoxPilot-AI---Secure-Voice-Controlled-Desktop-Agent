@@ -6,7 +6,7 @@ from app.models import ToolRequest
 def file_request(command):
     text = command.strip(" ")
     patterns = [
-        (r"open (?:my )?(desktop|documents|downloads|pictures|music|videos|project_\d+)(?: folder)?", "open_folder"),
+        (r"open (?:my )?(desktop|documents|downloads|pictures|music|videos|project_\d+|document_\d+)(?: folder)?", "open_folder"),
         (r"(?:show|list) (files|folders|entries) in (\w+)", "list_directory"),
         (r"find (?:my |files? named )?(.+?) in (\w+)", "find_file"),
         (r"find files? named (.+)", "find_all"),
